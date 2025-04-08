@@ -413,8 +413,10 @@ class gpgpu_sim_config : public power_config,
       : m_shader_config(ctx), m_memory_config(ctx) {
     m_valid = false;
     gpgpu_ctx = ctx;
+    phase_size = 1000; // Default phase size
   }
   void reg_options(class OptionParser *opp);
+  unsigned phase_size;
   void init() {
     gpu_stat_sample_freq = 10000;
     gpu_runtime_stat_flag = 0;
@@ -577,6 +579,8 @@ class gpgpu_sim : public gpgpu_t {
  public:
   gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx);
 
+  void log_phase_behavior();
+
   void set_prop(struct cudaDeviceProp *prop);
 
   void launch(kernel_info_t *kinfo);
@@ -684,6 +688,8 @@ class gpgpu_sim : public gpgpu_t {
   void print_shader_cycle_distro(FILE *fout) const;
 
   void gpgpu_debug();
+
+  unsigned long long current_phase_insn_count;
 
  protected:
   ///// data /////

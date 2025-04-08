@@ -182,6 +182,12 @@ void shader_core_ctx::create_front_pipeline() {
   m_L1I = new read_only_cache(name, m_config->m_L1I_config, m_sid,
                               get_shader_instruction_cache_id(), m_icnt,
                               IN_L1I_MISS_QUEUE, OTHER_GPU_CACHE, m_gpu);
+  for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
+    printf("Scheduler count: %u, Specialized unit %u width: %u\n",
+           m_config->gpgpu_num_sched_per_core,
+           j,
+           m_config->m_specialized_unit[j].id_oc_spec_reg_width);
+}
 }
 
 void shader_core_ctx::create_schedulers() {

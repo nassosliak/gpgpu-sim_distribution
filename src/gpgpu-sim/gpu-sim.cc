@@ -777,6 +777,9 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
                          &(gpgpu_ctx->device_runtime->g_TB_launch_latency),
                          "thread block launch latency in cycles. Default: 0",
                          "0");
+
+  option_parser_register(opp, "-gpgpu_phase_size", OPT_UINT32, &phase_size,
+                         "Number of instructions per phase for monitoring behavior (default=1000)", "1000");
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1974,6 +1977,13 @@ void gpgpu_sim::cycle() {
   int clock_mask = next_clock_domain();
 
   if (clock_mask & CORE) {
+    gpu_sim_insn++;
+
+        // Check if the phase is complete
+        if (gpu_sim_insn % m_config.phase_size == 0 && gpu_sim_insn > 0) {
+          gpu_print_stat(last_streamID); // Call gpu_print_stat() for the current phase
+          log_phase_behavior();
+        }
     // shader core loading (pop from ICNT into core) follows CORE clock
     for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++)
       m_cluster[i]->icnt_cycle();
@@ -2215,6 +2225,11 @@ void gpgpu_sim::cycle() {
 void sst_gpgpu_sim::cycle() {
   SST_cycle();
   return;
+}
+
+void gpgpu_sim::log_phase_behavior() {
+  printf("Phase completed: %u instructions executed.\n", m_config.phase_size);
+  printf("Total instructions so far: %llu\n", gpu_sim_insn);
 }
 
 void shader_core_ctx::dump_warp_state(FILE *fout) const {

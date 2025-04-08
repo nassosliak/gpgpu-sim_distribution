@@ -1,0 +1,383 @@
+# DO NOT DELETE
+
+./build/gpgpu-sim/addrdec.o: addrdec.h /usr/include/assert.h
+./build/gpgpu-sim/addrdec.o: /usr/include/features.h
+./build/gpgpu-sim/addrdec.o: /usr/include/stdc-predef.h /usr/include/stdio.h
+./build/gpgpu-sim/addrdec.o: /usr/include/stdlib.h /usr/include/alloca.h
+./build/gpgpu-sim/addrdec.o: ../option_parser.h ../abstract_hardware_model.h
+./build/gpgpu-sim/addrdec.o: /usr/include/math.h /usr/include/string.h
+./build/gpgpu-sim/addrdec.o: /usr/include/strings.h gpu-sim.h
+./build/gpgpu-sim/addrdec.o: /usr/include/stdint.h ../trace.h
+./build/gpgpu-sim/addrdec.o: ../trace_streams.tup gpu-cache.h
+./build/gpgpu-sim/addrdec.o: ../tr1_hash_map.h gpu-misc.h mem_fetch.h
+./build/gpgpu-sim/addrdec.o: mem_fetch_status.tup shader.h delayqueue.h
+./build/gpgpu-sim/addrdec.o: ../statwrapper.h dram.h /usr/include/zlib.h
+./build/gpgpu-sim/addrdec.o: /usr/include/zconf.h /usr/include/limits.h
+./build/gpgpu-sim/addrdec.o: /usr/include/unistd.h scoreboard.h stack.h
+./build/gpgpu-sim/addrdec.o: stats.h traffic_breakdown.h hashing.h
+./build/gpgpu-sim/dram.o: dram.h /usr/include/stdio.h /usr/include/stdlib.h
+./build/gpgpu-sim/dram.o: /usr/include/alloca.h /usr/include/features.h
+./build/gpgpu-sim/dram.o: /usr/include/stdc-predef.h /usr/include/zlib.h
+./build/gpgpu-sim/dram.o: /usr/include/zconf.h /usr/include/limits.h
+./build/gpgpu-sim/dram.o: /usr/include/unistd.h delayqueue.h
+./build/gpgpu-sim/dram.o: /usr/include/assert.h ../statwrapper.h gpu-misc.h
+./build/gpgpu-sim/dram.o: dram_sched.h gpu-sim.h /usr/include/stdint.h
+./build/gpgpu-sim/dram.o: ../abstract_hardware_model.h ../option_parser.h
+./build/gpgpu-sim/dram.o: ../trace.h ../trace_streams.tup addrdec.h
+./build/gpgpu-sim/dram.o: gpu-cache.h ../tr1_hash_map.h mem_fetch.h
+./build/gpgpu-sim/dram.o: mem_fetch_status.tup shader.h /usr/include/math.h
+./build/gpgpu-sim/dram.o: scoreboard.h stack.h stats.h traffic_breakdown.h
+./build/gpgpu-sim/dram.o: hashing.h l2cache.h mem_latency_stat.h
+./build/gpgpu-sim/dram_sched.o: dram_sched.h dram.h /usr/include/stdio.h
+./build/gpgpu-sim/dram_sched.o: /usr/include/stdlib.h /usr/include/alloca.h
+./build/gpgpu-sim/dram_sched.o: /usr/include/features.h
+./build/gpgpu-sim/dram_sched.o: /usr/include/stdc-predef.h
+./build/gpgpu-sim/dram_sched.o: /usr/include/zlib.h /usr/include/zconf.h
+./build/gpgpu-sim/dram_sched.o: /usr/include/limits.h /usr/include/unistd.h
+./build/gpgpu-sim/dram_sched.o: delayqueue.h /usr/include/assert.h
+./build/gpgpu-sim/dram_sched.o: ../statwrapper.h gpu-misc.h gpu-sim.h
+./build/gpgpu-sim/dram_sched.o: /usr/include/stdint.h
+./build/gpgpu-sim/dram_sched.o: ../abstract_hardware_model.h
+./build/gpgpu-sim/dram_sched.o: ../option_parser.h ../trace.h
+./build/gpgpu-sim/dram_sched.o: ../trace_streams.tup addrdec.h gpu-cache.h
+./build/gpgpu-sim/dram_sched.o: ../tr1_hash_map.h mem_fetch.h
+./build/gpgpu-sim/dram_sched.o: mem_fetch_status.tup shader.h
+./build/gpgpu-sim/dram_sched.o: /usr/include/math.h scoreboard.h stack.h
+./build/gpgpu-sim/dram_sched.o: stats.h traffic_breakdown.h
+./build/gpgpu-sim/dram_sched.o: mem_latency_stat.h
+./build/gpgpu-sim/gpu-cache.o: gpu-cache.h /usr/include/stdio.h
+./build/gpgpu-sim/gpu-cache.o: /usr/include/stdlib.h /usr/include/alloca.h
+./build/gpgpu-sim/gpu-cache.o: /usr/include/features.h
+./build/gpgpu-sim/gpu-cache.o: /usr/include/stdc-predef.h
+./build/gpgpu-sim/gpu-cache.o: ../abstract_hardware_model.h ../tr1_hash_map.h
+./build/gpgpu-sim/gpu-cache.o: gpu-misc.h mem_fetch.h addrdec.h
+./build/gpgpu-sim/gpu-cache.o: /usr/include/assert.h ../option_parser.h
+./build/gpgpu-sim/gpu-cache.o: mem_fetch_status.tup gpu-sim.h
+./build/gpgpu-sim/gpu-cache.o: /usr/include/stdint.h ../trace.h
+./build/gpgpu-sim/gpu-cache.o: ../trace_streams.tup shader.h
+./build/gpgpu-sim/gpu-cache.o: /usr/include/math.h delayqueue.h
+./build/gpgpu-sim/gpu-cache.o: ../statwrapper.h dram.h /usr/include/zlib.h
+./build/gpgpu-sim/gpu-cache.o: /usr/include/zconf.h /usr/include/limits.h
+./build/gpgpu-sim/gpu-cache.o: /usr/include/unistd.h scoreboard.h stack.h
+./build/gpgpu-sim/gpu-cache.o: stats.h traffic_breakdown.h hashing.h
+./build/gpgpu-sim/gpu-cache.o: stat-tool.h histogram.h
+./build/gpgpu-sim/gpu-misc.o: gpu-misc.h
+./build/gpgpu-sim/gpu-sim.o: gpu-sim.h /usr/include/stdint.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/stdio.h
+./build/gpgpu-sim/gpu-sim.o: ../abstract_hardware_model.h ../option_parser.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/stdlib.h /usr/include/alloca.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/features.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/stdc-predef.h ../trace.h
+./build/gpgpu-sim/gpu-sim.o: ../trace_streams.tup addrdec.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/assert.h gpu-cache.h
+./build/gpgpu-sim/gpu-sim.o: ../tr1_hash_map.h gpu-misc.h mem_fetch.h
+./build/gpgpu-sim/gpu-sim.o: mem_fetch_status.tup shader.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/math.h delayqueue.h
+./build/gpgpu-sim/gpu-sim.o: ../statwrapper.h dram.h /usr/include/zlib.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/zconf.h /usr/include/limits.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/unistd.h scoreboard.h stack.h
+./build/gpgpu-sim/gpu-sim.o: stats.h traffic_breakdown.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/signal.h shader_trace.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/time.h icnt_wrapper.h l2cache.h
+./build/gpgpu-sim/gpu-sim.o: stat-tool.h histogram.h
+./build/gpgpu-sim/gpu-sim.o: ../../libcuda/gpgpu_context.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/cuda-sim/cuda-sim.h
+./build/gpgpu-sim/gpu-sim.o: ../gpgpu-sim/shader.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/cuda-sim/ptx_sim.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/cuda-sim/half.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/cuda-sim/opcodes.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/cuda-sim/opcodes.def
+./build/gpgpu-sim/gpu-sim.o: ../../src/cuda-sim/memory.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/string.h /usr/include/strings.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/cuda-sim/cuda_device_runtime.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/cuda-sim/ptx-stats.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/cuda-sim/ptx_loader.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/cuda-sim/ptx_parser.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/cuda-sim/ptx_ir.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/gpgpusim_entrypoint.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/pthread.h /usr/include/sched.h
+./build/gpgpu-sim/gpu-sim.o: /usr/include/semaphore.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/abstract_hardware_model.h
+./build/gpgpu-sim/gpu-sim.o: ../../libcuda/cuda_api_object.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/abstract_hardware_model.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/cuda-sim/ptx_ir.h
+./build/gpgpu-sim/gpu-sim.o: ../../src/gpgpu-sim/gpu-sim.h
+./build/gpgpu-sim/gpu-sim.o: ../../libcuda/cuobjdump.h ../cuda-sim/cuda-sim.h
+./build/gpgpu-sim/gpu-sim.o: ../cuda-sim/cuda_device_runtime.h
+./build/gpgpu-sim/gpu-sim.o: ../cuda-sim/ptx-stats.h ../cuda-sim/ptx_ir.h
+./build/gpgpu-sim/gpu-sim.o: ../debug.h ../gpgpusim_entrypoint.h
+./build/gpgpu-sim/gpu-sim.o: mem_latency_stat.h power_stat.h visualizer.h
+./build/gpgpu-sim/hashing.o: /usr/include/math.h /usr/include/string.h
+./build/gpgpu-sim/hashing.o: /usr/include/strings.h /usr/include/features.h
+./build/gpgpu-sim/hashing.o: /usr/include/stdc-predef.h
+./build/gpgpu-sim/hashing.o: ../abstract_hardware_model.h gpu-cache.h
+./build/gpgpu-sim/hashing.o: /usr/include/stdio.h /usr/include/stdlib.h
+./build/gpgpu-sim/hashing.o: /usr/include/alloca.h ../tr1_hash_map.h
+./build/gpgpu-sim/hashing.o: gpu-misc.h mem_fetch.h addrdec.h
+./build/gpgpu-sim/hashing.o: /usr/include/assert.h ../option_parser.h
+./build/gpgpu-sim/hashing.o: mem_fetch_status.tup
+./build/gpgpu-sim/histogram.o: histogram.h /usr/include/assert.h
+./build/gpgpu-sim/histogram.o: /usr/include/features.h
+./build/gpgpu-sim/histogram.o: /usr/include/stdc-predef.h
+./build/gpgpu-sim/icnt_wrapper.o: icnt_wrapper.h /usr/include/stdio.h
+./build/gpgpu-sim/icnt_wrapper.o: /usr/include/assert.h
+./build/gpgpu-sim/icnt_wrapper.o: /usr/include/features.h
+./build/gpgpu-sim/icnt_wrapper.o: /usr/include/stdc-predef.h
+./build/gpgpu-sim/icnt_wrapper.o: ../intersim2/globals.hpp
+./build/gpgpu-sim/icnt_wrapper.o: ../intersim2/interconnect_interface.hpp
+./build/gpgpu-sim/icnt_wrapper.o: local_interconnect.h ../option_parser.h
+./build/gpgpu-sim/icnt_wrapper.o: /usr/include/stdlib.h /usr/include/alloca.h
+./build/gpgpu-sim/l2cache.o: /usr/include/stdio.h /usr/include/stdlib.h
+./build/gpgpu-sim/l2cache.o: /usr/include/alloca.h /usr/include/features.h
+./build/gpgpu-sim/l2cache.o: /usr/include/stdc-predef.h /usr/include/string.h
+./build/gpgpu-sim/l2cache.o: /usr/include/strings.h
+./build/gpgpu-sim/l2cache.o: ../abstract_hardware_model.h ../option_parser.h
+./build/gpgpu-sim/l2cache.o: ../statwrapper.h dram.h /usr/include/zlib.h
+./build/gpgpu-sim/l2cache.o: /usr/include/zconf.h /usr/include/limits.h
+./build/gpgpu-sim/l2cache.o: /usr/include/unistd.h delayqueue.h
+./build/gpgpu-sim/l2cache.o: /usr/include/assert.h gpu-misc.h gpu-cache.h
+./build/gpgpu-sim/l2cache.o: ../tr1_hash_map.h mem_fetch.h addrdec.h
+./build/gpgpu-sim/l2cache.o: mem_fetch_status.tup gpu-sim.h
+./build/gpgpu-sim/l2cache.o: /usr/include/stdint.h ../trace.h
+./build/gpgpu-sim/l2cache.o: ../trace_streams.tup shader.h
+./build/gpgpu-sim/l2cache.o: /usr/include/math.h scoreboard.h stack.h stats.h
+./build/gpgpu-sim/l2cache.o: traffic_breakdown.h histogram.h l2cache.h
+./build/gpgpu-sim/l2cache.o: l2cache_trace.h mem_latency_stat.h
+./build/gpgpu-sim/local_interconnect.o: local_interconnect.h mem_fetch.h
+./build/gpgpu-sim/local_interconnect.o: ../abstract_hardware_model.h
+./build/gpgpu-sim/local_interconnect.o: addrdec.h /usr/include/assert.h
+./build/gpgpu-sim/local_interconnect.o: /usr/include/features.h
+./build/gpgpu-sim/local_interconnect.o: /usr/include/stdc-predef.h
+./build/gpgpu-sim/local_interconnect.o: /usr/include/stdio.h
+./build/gpgpu-sim/local_interconnect.o: /usr/include/stdlib.h
+./build/gpgpu-sim/local_interconnect.o: /usr/include/alloca.h
+./build/gpgpu-sim/local_interconnect.o: ../option_parser.h
+./build/gpgpu-sim/local_interconnect.o: mem_fetch_status.tup
+./build/gpgpu-sim/mem_fetch.o: mem_fetch.h ../abstract_hardware_model.h
+./build/gpgpu-sim/mem_fetch.o: addrdec.h /usr/include/assert.h
+./build/gpgpu-sim/mem_fetch.o: /usr/include/features.h
+./build/gpgpu-sim/mem_fetch.o: /usr/include/stdc-predef.h
+./build/gpgpu-sim/mem_fetch.o: /usr/include/stdio.h /usr/include/stdlib.h
+./build/gpgpu-sim/mem_fetch.o: /usr/include/alloca.h ../option_parser.h
+./build/gpgpu-sim/mem_fetch.o: mem_fetch_status.tup gpu-sim.h
+./build/gpgpu-sim/mem_fetch.o: /usr/include/stdint.h ../trace.h
+./build/gpgpu-sim/mem_fetch.o: ../trace_streams.tup gpu-cache.h
+./build/gpgpu-sim/mem_fetch.o: ../tr1_hash_map.h gpu-misc.h shader.h
+./build/gpgpu-sim/mem_fetch.o: /usr/include/math.h delayqueue.h
+./build/gpgpu-sim/mem_fetch.o: ../statwrapper.h dram.h /usr/include/zlib.h
+./build/gpgpu-sim/mem_fetch.o: /usr/include/zconf.h /usr/include/limits.h
+./build/gpgpu-sim/mem_fetch.o: /usr/include/unistd.h scoreboard.h stack.h
+./build/gpgpu-sim/mem_fetch.o: stats.h traffic_breakdown.h mem_latency_stat.h
+./build/gpgpu-sim/mem_fetch.o: visualizer.h
+./build/gpgpu-sim/mem_latency_stat.o: mem_latency_stat.h /usr/include/stdio.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/zlib.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/zconf.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/limits.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/unistd.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/features.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/stdc-predef.h
+./build/gpgpu-sim/mem_latency_stat.o: ../abstract_hardware_model.h
+./build/gpgpu-sim/mem_latency_stat.o: ../cuda-sim/ptx-stats.h
+./build/gpgpu-sim/mem_latency_stat.o: ../option_parser.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/stdlib.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/alloca.h dram.h
+./build/gpgpu-sim/mem_latency_stat.o: delayqueue.h /usr/include/assert.h
+./build/gpgpu-sim/mem_latency_stat.o: ../statwrapper.h gpu-misc.h gpu-cache.h
+./build/gpgpu-sim/mem_latency_stat.o: ../tr1_hash_map.h mem_fetch.h addrdec.h
+./build/gpgpu-sim/mem_latency_stat.o: mem_fetch_status.tup gpu-sim.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/stdint.h ../trace.h
+./build/gpgpu-sim/mem_latency_stat.o: ../trace_streams.tup shader.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/math.h scoreboard.h
+./build/gpgpu-sim/mem_latency_stat.o: stack.h stats.h traffic_breakdown.h
+./build/gpgpu-sim/mem_latency_stat.o: stat-tool.h histogram.h visualizer.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/string.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/strings.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../libcuda/gpgpu_context.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/cuda-sim/cuda-sim.h
+./build/gpgpu-sim/mem_latency_stat.o: ../gpgpu-sim/shader.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/cuda-sim/ptx_sim.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/cuda-sim/half.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/cuda-sim/opcodes.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/cuda-sim/opcodes.def
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/cuda-sim/memory.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/cuda-sim/cuda_device_runtime.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/cuda-sim/ptx-stats.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/cuda-sim/ptx_loader.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/cuda-sim/ptx_parser.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/cuda-sim/ptx_ir.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/gpgpusim_entrypoint.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/pthread.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/sched.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/time.h
+./build/gpgpu-sim/mem_latency_stat.o: /usr/include/semaphore.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/abstract_hardware_model.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../libcuda/cuda_api_object.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/abstract_hardware_model.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/cuda-sim/ptx_ir.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../src/gpgpu-sim/gpu-sim.h
+./build/gpgpu-sim/mem_latency_stat.o: ../../libcuda/cuobjdump.h
+./build/gpgpu-sim/power_interface.o: power_interface.h gpu-sim.h
+./build/gpgpu-sim/power_interface.o: /usr/include/stdint.h
+./build/gpgpu-sim/power_interface.o: /usr/include/stdio.h
+./build/gpgpu-sim/power_interface.o: ../abstract_hardware_model.h
+./build/gpgpu-sim/power_interface.o: ../option_parser.h /usr/include/stdlib.h
+./build/gpgpu-sim/power_interface.o: /usr/include/alloca.h
+./build/gpgpu-sim/power_interface.o: /usr/include/features.h
+./build/gpgpu-sim/power_interface.o: /usr/include/stdc-predef.h ../trace.h
+./build/gpgpu-sim/power_interface.o: ../trace_streams.tup addrdec.h
+./build/gpgpu-sim/power_interface.o: /usr/include/assert.h gpu-cache.h
+./build/gpgpu-sim/power_interface.o: ../tr1_hash_map.h gpu-misc.h mem_fetch.h
+./build/gpgpu-sim/power_interface.o: mem_fetch_status.tup shader.h
+./build/gpgpu-sim/power_interface.o: /usr/include/math.h delayqueue.h
+./build/gpgpu-sim/power_interface.o: ../statwrapper.h dram.h
+./build/gpgpu-sim/power_interface.o: /usr/include/zlib.h /usr/include/zconf.h
+./build/gpgpu-sim/power_interface.o: /usr/include/limits.h
+./build/gpgpu-sim/power_interface.o: /usr/include/unistd.h scoreboard.h
+./build/gpgpu-sim/power_interface.o: stack.h stats.h traffic_breakdown.h
+./build/gpgpu-sim/power_interface.o: power_stat.h mem_latency_stat.h
+./build/gpgpu-sim/power_stat.o: power_stat.h /usr/include/stdio.h
+./build/gpgpu-sim/power_stat.o: /usr/include/zlib.h /usr/include/zconf.h
+./build/gpgpu-sim/power_stat.o: /usr/include/limits.h /usr/include/unistd.h
+./build/gpgpu-sim/power_stat.o: /usr/include/features.h
+./build/gpgpu-sim/power_stat.o: /usr/include/stdc-predef.h gpu-sim.h
+./build/gpgpu-sim/power_stat.o: /usr/include/stdint.h
+./build/gpgpu-sim/power_stat.o: ../abstract_hardware_model.h
+./build/gpgpu-sim/power_stat.o: ../option_parser.h /usr/include/stdlib.h
+./build/gpgpu-sim/power_stat.o: /usr/include/alloca.h ../trace.h
+./build/gpgpu-sim/power_stat.o: ../trace_streams.tup addrdec.h
+./build/gpgpu-sim/power_stat.o: /usr/include/assert.h gpu-cache.h
+./build/gpgpu-sim/power_stat.o: ../tr1_hash_map.h gpu-misc.h mem_fetch.h
+./build/gpgpu-sim/power_stat.o: mem_fetch_status.tup shader.h
+./build/gpgpu-sim/power_stat.o: /usr/include/math.h delayqueue.h
+./build/gpgpu-sim/power_stat.o: ../statwrapper.h dram.h scoreboard.h stack.h
+./build/gpgpu-sim/power_stat.o: stats.h traffic_breakdown.h
+./build/gpgpu-sim/power_stat.o: mem_latency_stat.h ../cuda-sim/ptx-stats.h
+./build/gpgpu-sim/power_stat.o: stat-tool.h histogram.h visualizer.h
+./build/gpgpu-sim/power_stat.o: /usr/include/string.h /usr/include/strings.h
+./build/gpgpu-sim/scoreboard.o: scoreboard.h /usr/include/stdio.h
+./build/gpgpu-sim/scoreboard.o: /usr/include/stdlib.h /usr/include/alloca.h
+./build/gpgpu-sim/scoreboard.o: /usr/include/features.h
+./build/gpgpu-sim/scoreboard.o: /usr/include/stdc-predef.h
+./build/gpgpu-sim/scoreboard.o: /usr/include/assert.h
+./build/gpgpu-sim/scoreboard.o: ../abstract_hardware_model.h
+./build/gpgpu-sim/scoreboard.o: ../cuda-sim/ptx_sim.h ../tr1_hash_map.h
+./build/gpgpu-sim/scoreboard.o: ../../src/cuda-sim/half.h
+./build/gpgpu-sim/scoreboard.o: ../../src/cuda-sim/opcodes.h
+./build/gpgpu-sim/scoreboard.o: ../../src/cuda-sim/opcodes.def
+./build/gpgpu-sim/scoreboard.o: ../../src/cuda-sim/memory.h
+./build/gpgpu-sim/scoreboard.o: /usr/include/string.h /usr/include/strings.h
+./build/gpgpu-sim/scoreboard.o: shader.h /usr/include/math.h delayqueue.h
+./build/gpgpu-sim/scoreboard.o: ../statwrapper.h gpu-misc.h dram.h
+./build/gpgpu-sim/scoreboard.o: /usr/include/zlib.h /usr/include/zconf.h
+./build/gpgpu-sim/scoreboard.o: /usr/include/limits.h /usr/include/unistd.h
+./build/gpgpu-sim/scoreboard.o: gpu-cache.h mem_fetch.h addrdec.h
+./build/gpgpu-sim/scoreboard.o: ../option_parser.h mem_fetch_status.tup
+./build/gpgpu-sim/scoreboard.o: stack.h stats.h traffic_breakdown.h
+./build/gpgpu-sim/scoreboard.o: shader_trace.h ../trace.h
+./build/gpgpu-sim/scoreboard.o: ../trace_streams.tup
+./build/gpgpu-sim/shader.o: shader.h /usr/include/assert.h
+./build/gpgpu-sim/shader.o: /usr/include/features.h
+./build/gpgpu-sim/shader.o: /usr/include/stdc-predef.h /usr/include/math.h
+./build/gpgpu-sim/shader.o: /usr/include/stdio.h /usr/include/stdlib.h
+./build/gpgpu-sim/shader.o: /usr/include/alloca.h
+./build/gpgpu-sim/shader.o: ../abstract_hardware_model.h delayqueue.h
+./build/gpgpu-sim/shader.o: ../statwrapper.h gpu-misc.h dram.h
+./build/gpgpu-sim/shader.o: /usr/include/zlib.h /usr/include/zconf.h
+./build/gpgpu-sim/shader.o: /usr/include/limits.h /usr/include/unistd.h
+./build/gpgpu-sim/shader.o: gpu-cache.h ../tr1_hash_map.h mem_fetch.h
+./build/gpgpu-sim/shader.o: addrdec.h ../option_parser.h mem_fetch_status.tup
+./build/gpgpu-sim/shader.o: scoreboard.h stack.h stats.h traffic_breakdown.h
+./build/gpgpu-sim/shader.o: /usr/include/string.h /usr/include/strings.h
+./build/gpgpu-sim/shader.o: ../../libcuda/gpgpu_context.h
+./build/gpgpu-sim/shader.o: ../../src/cuda-sim/cuda-sim.h
+./build/gpgpu-sim/shader.o: ../gpgpu-sim/shader.h
+./build/gpgpu-sim/shader.o: ../../src/cuda-sim/ptx_sim.h
+./build/gpgpu-sim/shader.o: ../../src/cuda-sim/half.h
+./build/gpgpu-sim/shader.o: ../../src/cuda-sim/opcodes.h
+./build/gpgpu-sim/shader.o: ../../src/cuda-sim/opcodes.def
+./build/gpgpu-sim/shader.o: ../../src/cuda-sim/memory.h
+./build/gpgpu-sim/shader.o: ../../src/cuda-sim/cuda_device_runtime.h
+./build/gpgpu-sim/shader.o: ../../src/cuda-sim/ptx-stats.h
+./build/gpgpu-sim/shader.o: ../../src/cuda-sim/ptx_loader.h
+./build/gpgpu-sim/shader.o: ../../src/cuda-sim/ptx_parser.h
+./build/gpgpu-sim/shader.o: ../../src/cuda-sim/ptx_ir.h
+./build/gpgpu-sim/shader.o: ../../src/gpgpusim_entrypoint.h
+./build/gpgpu-sim/shader.o: /usr/include/pthread.h /usr/include/sched.h
+./build/gpgpu-sim/shader.o: /usr/include/time.h /usr/include/semaphore.h
+./build/gpgpu-sim/shader.o: ../../src/abstract_hardware_model.h
+./build/gpgpu-sim/shader.o: ../../libcuda/cuda_api_object.h
+./build/gpgpu-sim/shader.o: ../../src/abstract_hardware_model.h
+./build/gpgpu-sim/shader.o: ../../src/cuda-sim/ptx_ir.h
+./build/gpgpu-sim/shader.o: ../../src/gpgpu-sim/gpu-sim.h
+./build/gpgpu-sim/shader.o: ../../libcuda/cuobjdump.h ../cuda-sim/cuda-sim.h
+./build/gpgpu-sim/shader.o: ../cuda-sim/ptx-stats.h ../cuda-sim/ptx_sim.h
+./build/gpgpu-sim/shader.o: gpu-sim.h /usr/include/stdint.h ../trace.h
+./build/gpgpu-sim/shader.o: ../trace_streams.tup icnt_wrapper.h
+./build/gpgpu-sim/shader.o: mem_latency_stat.h shader_trace.h stat-tool.h
+./build/gpgpu-sim/shader.o: histogram.h visualizer.h
+./build/gpgpu-sim/stack.o: stack.h ../abstract_hardware_model.h
+./build/gpgpu-sim/stack.o: /usr/include/assert.h /usr/include/features.h
+./build/gpgpu-sim/stack.o: /usr/include/stdc-predef.h /usr/include/stdlib.h
+./build/gpgpu-sim/stack.o: /usr/include/alloca.h
+./build/gpgpu-sim/stat-tool.o: stat-tool.h ../abstract_hardware_model.h
+./build/gpgpu-sim/stat-tool.o: ../tr1_hash_map.h histogram.h
+./build/gpgpu-sim/stat-tool.o: /usr/include/stdio.h /usr/include/zlib.h
+./build/gpgpu-sim/stat-tool.o: /usr/include/zconf.h /usr/include/limits.h
+./build/gpgpu-sim/stat-tool.o: /usr/include/unistd.h /usr/include/features.h
+./build/gpgpu-sim/stat-tool.o: /usr/include/stdc-predef.h
+./build/gpgpu-sim/stat-tool.o: /usr/include/assert.h /usr/include/stdlib.h
+./build/gpgpu-sim/stat-tool.o: /usr/include/alloca.h
+./build/gpgpu-sim/stat-tool.o: ../../libcuda/gpgpu_context.h
+./build/gpgpu-sim/stat-tool.o: ../../src/cuda-sim/cuda-sim.h
+./build/gpgpu-sim/stat-tool.o: ../gpgpu-sim/shader.h
+./build/gpgpu-sim/stat-tool.o: ../../src/cuda-sim/ptx_sim.h
+./build/gpgpu-sim/stat-tool.o: ../../src/cuda-sim/half.h
+./build/gpgpu-sim/stat-tool.o: ../../src/cuda-sim/opcodes.h
+./build/gpgpu-sim/stat-tool.o: ../../src/cuda-sim/opcodes.def
+./build/gpgpu-sim/stat-tool.o: ../../src/cuda-sim/memory.h
+./build/gpgpu-sim/stat-tool.o: /usr/include/string.h /usr/include/strings.h
+./build/gpgpu-sim/stat-tool.o: ../../src/cuda-sim/cuda_device_runtime.h
+./build/gpgpu-sim/stat-tool.o: ../../src/cuda-sim/ptx-stats.h
+./build/gpgpu-sim/stat-tool.o: ../option_parser.h
+./build/gpgpu-sim/stat-tool.o: ../../src/cuda-sim/ptx_loader.h
+./build/gpgpu-sim/stat-tool.o: ../../src/cuda-sim/ptx_parser.h
+./build/gpgpu-sim/stat-tool.o: ../../src/cuda-sim/ptx_ir.h
+./build/gpgpu-sim/stat-tool.o: ../../src/gpgpusim_entrypoint.h
+./build/gpgpu-sim/stat-tool.o: /usr/include/pthread.h /usr/include/sched.h
+./build/gpgpu-sim/stat-tool.o: /usr/include/time.h /usr/include/semaphore.h
+./build/gpgpu-sim/stat-tool.o: ../../src/abstract_hardware_model.h
+./build/gpgpu-sim/stat-tool.o: ../../libcuda/cuda_api_object.h
+./build/gpgpu-sim/stat-tool.o: ../../src/abstract_hardware_model.h
+./build/gpgpu-sim/stat-tool.o: ../../src/cuda-sim/ptx_ir.h
+./build/gpgpu-sim/stat-tool.o: ../../src/gpgpu-sim/gpu-sim.h
+./build/gpgpu-sim/stat-tool.o: ../../libcuda/cuobjdump.h
+./build/gpgpu-sim/traffic_breakdown.o: traffic_breakdown.h
+./build/gpgpu-sim/traffic_breakdown.o: /usr/include/stdio.h mem_fetch.h
+./build/gpgpu-sim/traffic_breakdown.o: ../abstract_hardware_model.h addrdec.h
+./build/gpgpu-sim/traffic_breakdown.o: /usr/include/assert.h
+./build/gpgpu-sim/traffic_breakdown.o: /usr/include/features.h
+./build/gpgpu-sim/traffic_breakdown.o: /usr/include/stdc-predef.h
+./build/gpgpu-sim/traffic_breakdown.o: /usr/include/stdlib.h
+./build/gpgpu-sim/traffic_breakdown.o: /usr/include/alloca.h
+./build/gpgpu-sim/traffic_breakdown.o: ../option_parser.h
+./build/gpgpu-sim/traffic_breakdown.o: mem_fetch_status.tup
+./build/gpgpu-sim/visualizer.o: visualizer.h /usr/include/stdio.h
+./build/gpgpu-sim/visualizer.o: /usr/include/zlib.h /usr/include/zconf.h
+./build/gpgpu-sim/visualizer.o: /usr/include/limits.h /usr/include/unistd.h
+./build/gpgpu-sim/visualizer.o: /usr/include/features.h
+./build/gpgpu-sim/visualizer.o: /usr/include/stdc-predef.h ../option_parser.h
+./build/gpgpu-sim/visualizer.o: /usr/include/stdlib.h /usr/include/alloca.h
+./build/gpgpu-sim/visualizer.o: gpu-sim.h /usr/include/stdint.h
+./build/gpgpu-sim/visualizer.o: ../abstract_hardware_model.h ../trace.h
+./build/gpgpu-sim/visualizer.o: ../trace_streams.tup addrdec.h
+./build/gpgpu-sim/visualizer.o: /usr/include/assert.h gpu-cache.h
+./build/gpgpu-sim/visualizer.o: ../tr1_hash_map.h gpu-misc.h mem_fetch.h
+./build/gpgpu-sim/visualizer.o: mem_fetch_status.tup shader.h
+./build/gpgpu-sim/visualizer.o: /usr/include/math.h delayqueue.h
+./build/gpgpu-sim/visualizer.o: ../statwrapper.h dram.h scoreboard.h stack.h
+./build/gpgpu-sim/visualizer.o: stats.h traffic_breakdown.h l2cache.h
+./build/gpgpu-sim/visualizer.o: mem_latency_stat.h power_stat.h stat-tool.h
+./build/gpgpu-sim/visualizer.o: histogram.h /usr/include/string.h
+./build/gpgpu-sim/visualizer.o: /usr/include/strings.h /usr/include/time.h
+./build/gpgpu-sim/visualizer.o: ../gpgpu-sim/shader.h
+./build/gpgpu-sim/visualizer.o: ../gpgpu-sim/mem_fetch.h
