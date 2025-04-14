@@ -150,6 +150,20 @@ class gpgpu_sim_wrapper {
 
   PowerscalingCoefficients* get_scaling_coeffs();
 
+  // Add these new method declarations
+  double get_power(); 
+  std::vector<double> get_component_powers();
+  void print_phase_power_stats();
+
+  // Add these new methods for phase tracking
+  void start_phase();
+  void end_phase();
+  
+  // Add getters for power statistics
+  double get_avg_power() const { return kernel_power.avg; }
+  double get_max_power() const { return kernel_power.max; }
+  double get_min_power() const { return kernel_power.min; }
+
  private:
   void print_steady_state(int position, double init_val);
 
@@ -219,6 +233,17 @@ class gpgpu_sim_wrapper {
   gzFile power_trace_file;
   gzFile metric_trace_file;
   gzFile steady_state_tacking_file;
+
+  // Add these new private members for phase tracking
+  struct phase_power_stats {
+    double total_power;
+    std::vector<double> component_powers;
+    unsigned long long start_cycle;
+    unsigned long long end_cycle;
+};
+std::vector<phase_power_stats> phase_stats;
+bool phase_in_progress;
+unsigned current_phase;
 };
 
 #endif /* GPGPU_SIM_WRAPPER_H_ */

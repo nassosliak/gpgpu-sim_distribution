@@ -80,6 +80,42 @@ class gpgpu_sim_wrapper {};
 #include <iostream>
 #include <sstream>
 #include <string>
+// Add at the top of the file after includes
+const char* pwr_cmp_label[] = {
+  "IBP",          // Instruction Buffer Power
+  "ICP",          // I-Cache Power  
+  "DCP",          // D-Cache Power
+  "TCP",          // Texture Cache Power
+  "CCP",          // Constant Cache Power
+  "SHRDP",        // Shared Memory Power
+  "RFP",          // Register File Power
+  "INTP",         // Integer Unit Power
+  "FPUP",         // FPU Power
+  "DPUP",         // Double Precision Unit Power
+  "INT_MUL24P",   // 24-bit Integer Multiply Power
+  "INT_MUL32P",   // 32-bit Integer Multiply Power 
+  "INT_MULP",     // Integer Multiply Power
+  "INT_DIVP",     // Integer Divide Power
+  "FP_MULP",      // FP Multiply Power
+  "FP_DIVP",      // FP Divide Power
+  "FP_SQRTP",     // FP Square Root Power
+  "FP_LGP",       // FP Log Power
+  "FP_SINP",      // FP Sin Power
+  "FP_EXP",       // FP Exp Power
+  "DP_MULP",      // DP Multiply Power
+  "DP_DIVP",      // DP Divide Power
+  "TENSORP",      // Tensor Core Power
+  "TEXP",         // Texture Unit Power
+  "SCHEDP",       // Scheduler Power
+  "L2CP",         // L2 Cache Power
+  "MCP",          // Memory Controller Power
+  "NOCP",         // Network on Chip Power
+  "DRAMP",        // DRAM Power
+  "PIPEP",        // Pipeline Power
+  "IDLE_COREP",   // Idle Core Power
+  "CONSTP",       // Constant Power
+  "STATICP"       // Static Power
+};
 
 // #define MAX(a, b) (((a) > (b)) ? (a) : (b)) //redefined
 
@@ -1982,6 +2018,12 @@ void gpgpu_sim::cycle() {
         // Check if the phase is complete
         if (gpu_sim_insn % m_config.phase_size == 0 && gpu_sim_insn > 0) {
           gpu_print_stat(last_streamID); // Call gpu_print_stat() for the current phase
+          //save power stats per phase to power log with Phase number in front
+            
+
+
+          
+
           log_phase_behavior();
         }
     // shader core loading (pop from ICNT into core) follows CORE clock
@@ -2230,6 +2272,25 @@ void sst_gpgpu_sim::cycle() {
 void gpgpu_sim::log_phase_behavior() {
   printf("Phase completed: %u instructions executed.\n", m_config.phase_size);
   printf("Total instructions so far: %llu\n", gpu_sim_insn);
+  // Add power statistics for this phase
+  #ifdef GPGPUSIM_POWER_MODEL
+  if (m_config.g_power_simulation_enabled) {
+    // Get power data for this phase
+    m_gpgpusim_wrapper->compute();
+    double phase_power = m_gpgpusim_wrapper->get_power();
+    
+    printf("\n==========Power Statistics for Phase==========\n");
+    printf("Total Power: %f W\n", phase_power);
+    
+    // Print component-wise power breakdown
+    std::vector<double> component_power = m_gpgpusim_wrapper->get_component_powers();
+    for (unsigned i = 0; i < component_power.size(); i++) {
+      printf("%s Power: %f W\n", pwr_cmp_label[i], component_power[i]);
+    }
+    printf("=============================================\n\n");
+    m_gpgpusim_wrapper->reset_counters();
+  }
+  #endif
 }
 
 void shader_core_ctx::dump_warp_state(FILE *fout) const {

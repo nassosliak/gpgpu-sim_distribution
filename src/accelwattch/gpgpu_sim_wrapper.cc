@@ -327,6 +327,18 @@ void gpgpu_sim_wrapper::set_ccache_power(double hits, double misses) {
   // valid for no-caches architectures)
 }
 
+double gpgpu_sim_wrapper::get_power() {
+  return proc_power;
+}
+
+std::vector<double> gpgpu_sim_wrapper::get_component_powers() {
+  std::vector<double> component_powers;
+  for (unsigned i = 0; i < num_pwr_cmps; i++) {
+    component_powers.push_back(sample_cmp_pwr[i]);
+  }
+  return component_powers;
+}
+
 void gpgpu_sim_wrapper::set_tcache_power(double hits, double misses) {
   p->sys.core[0].tcache.read_accesses =
       hits * p->sys.scaling_coefficients[TC_H] +
