@@ -72,5 +72,6 @@ setup
 __pycache__/
 
 #makedepend
+*.makedepend
 makedepend*
 *.makedepend.bak
