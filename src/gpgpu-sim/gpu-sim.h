@@ -676,6 +676,11 @@ class gpgpu_sim : public gpgpu_t {
 
  protected:
   // clocks
+  unsigned long long m_phase_start_cycle;  // Cycle count at start of current phase
+  unsigned long long m_phase_start_insn;   // Instruction count at start of current phase
+  unsigned long long m_last_phase_insn;    // Last instruction count at phase boundary
+  float m_current_phase_ipc;
+  unsigned phase_number;
   void reinit_clock_domains(void);
   int next_clock_domain(void);
   void issue_block2core();
