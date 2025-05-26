@@ -701,6 +701,10 @@ void shader_core_config::reg_options(class OptionParser *opp) {
                            "OC_SPEC>:<OC_EX_SPEC>,<NAME>}",
                            "0,4,4,4,4,BRA");
   }
+      option_parser_register(opp, "-gpgpu_enable_reconfig", OPT_BOOL,
+                          &m_dynamic_reconfig_enabled,
+                          "Enable dynamic reconfiguration of execution units and caches", 
+                          "1");
 }
 
 void gpgpu_sim_config::reg_options(option_parser_t opp) {
@@ -815,9 +819,10 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
                          "0");
 
   option_parser_register(opp, "-gpgpu_phase_size", OPT_UINT32, &phase_size,
-                         "Number of instructions per phase for monitoring behavior (default=1000)", "1000");
-}
+                         "Number of instructions per phase for monitoring behavior (default=10000)", "10000");
 
+
+    }
 /////////////////////////////////////////////////////////////////////////////
 
 void increment_x_then_y_then_z(dim3 &i, const dim3 &bound) {
@@ -2293,7 +2298,7 @@ void sst_gpgpu_sim::cycle() {
 }
 
 void gpgpu_sim::log_phase_behavior() {
-  printf("Phase %u completed: %u instructions executed.\n", phase_number, gpu_tot_sim_insn + gpu_sim_insn - m_phase_start_insn);
+  printf("Phase %u completed: %llu instructions executed.\n", phase_number, gpu_tot_sim_insn + gpu_sim_insn - m_phase_start_insn);
   printf("Total instructions so far: %llu\n", gpu_tot_sim_insn + gpu_sim_insn);
   // Add power statistics for this phase
   #ifdef GPGPUSIM_POWER_MODEL

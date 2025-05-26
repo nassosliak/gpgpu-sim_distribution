@@ -34,6 +34,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <cmath>
 #include "../abstract_hardware_model.h"
 #include "../tr1_hash_map.h"
 #include "gpu-misc.h"
@@ -903,46 +904,6 @@ class cache_config {
   friend class l2_cache;
   friend class memory_sub_partition;
 };
-
-class l1d_cache_config : public cache_config {
- public:
-  l1d_cache_config() : cache_config() {}
-  unsigned set_bank(new_addr_type addr) const;
-  void init(char *config, FuncCache status) {
-    l1_banks_byte_interleaving_log2 = LOGB2(l1_banks_byte_interleaving);
-    l1_banks_log2 = LOGB2(l1_banks);
-    cache_config::init(config, status);
-  }
-  unsigned l1_latency;
-  unsigned l1_banks;
-  unsigned l1_banks_log2;
-  unsigned l1_banks_byte_interleaving;
-  unsigned l1_banks_byte_interleaving_log2;
-  unsigned l1_banks_hashing_function;
-  unsigned m_unified_cache_size;
-  virtual unsigned get_max_cache_multiplier() const {
-    // set * assoc * cacheline size. Then convert Byte to KB
-    // gpgpu_unified_cache_size is in KB while original_sz is in B
-    if (m_unified_cache_size > 0) {
-      unsigned original_size = m_nset * original_m_assoc * m_line_sz / 1024;
-      assert(m_unified_cache_size % original_size == 0);
-      return m_unified_cache_size / original_size;
-    } else {
-      return MAX_DEFAULT_CACHE_SIZE_MULTIBLIER;
-    }
-  }
-};
-
-class l2_cache_config : public cache_config {
- public:
-  l2_cache_config() : cache_config() {}
-  void init(linear_to_raw_address_translation *address_mapping);
-  virtual unsigned set_index(new_addr_type addr) const;
-
- private:
-  linear_to_raw_address_translation *m_address_mapping;
-};
-
 class tag_array {
  public:
   // Use this constructor
@@ -1020,6 +981,93 @@ class tag_array {
   typedef tr1_hash_map<new_addr_type, unsigned> line_table;
   line_table pending_lines;
 };
+class l1d_cache_config : public cache_config {
+ public:
+  unsigned m_cache_size; 
+  unsigned m_n_banks;
+  unsigned m_block_sz;
+  tag_array* m_tag_array;
+
+  unsigned l1_latency;
+  unsigned l1_banks;
+  unsigned l1_banks_log2;
+  unsigned l1_banks_byte_interleaving;
+  unsigned l1_banks_byte_interleaving_log2;
+  unsigned l1_banks_hashing_function;
+  unsigned m_unified_cache_size;
+  l1d_cache_config()
+      : cache_config(),
+        m_cache_size(0),
+        m_n_banks(0),
+        m_block_sz(0),
+        m_tag_array(NULL),
+        l1_latency(0),
+        l1_banks(0),
+        l1_banks_log2(0),
+        l1_banks_byte_interleaving(0),
+        l1_banks_byte_interleaving_log2(0),
+        l1_banks_hashing_function(0),
+        m_unified_cache_size(0) {}
+
+  void set_config(unsigned size, unsigned assoc, unsigned line_size, unsigned banks) {
+    m_cache_size = size;
+    m_assoc = assoc;
+    m_line_sz = line_size; 
+    m_n_banks = banks;
+    m_nset = (m_cache_size / m_line_sz) / m_assoc;
+    m_block_sz = m_line_sz;
+    if (m_tag_array) {
+      delete m_tag_array;
+      m_tag_array = NULL;
+    }
+  }
+
+  ~l1d_cache_config() {
+    if (m_tag_array) {
+      delete m_tag_array;
+      m_tag_array = NULL;
+    }
+  }
+
+  void init_tag_array(int core_id, int type_id) {
+    if (m_tag_array) {
+      delete m_tag_array;
+    }
+    m_tag_array = new tag_array(*this, core_id, type_id);
+  }
+
+  unsigned set_bank(new_addr_type addr) const;
+
+  void init(char *config, FuncCache status) {
+    l1_banks_byte_interleaving_log2 = LOGB2(l1_banks_byte_interleaving);
+    l1_banks_log2 = LOGB2(l1_banks);
+    cache_config::init(config, status);
+  }
+
+  virtual unsigned get_max_cache_multiplier() const {
+    // set * assoc * cacheline size. Then convert Byte to KB
+    // gpgpu_unified_cache_size is in KB while original_sz is in B
+    if (m_unified_cache_size > 0) {
+      unsigned original_size = m_nset * original_m_assoc * m_line_sz / 1024;
+      assert(m_unified_cache_size % original_size == 0);
+      return m_unified_cache_size / original_size;
+    } else {
+      return MAX_DEFAULT_CACHE_SIZE_MULTIBLIER;
+    }
+  }
+};
+
+class l2_cache_config : public cache_config {
+ public:
+  l2_cache_config() : cache_config() {}
+  void init(linear_to_raw_address_translation *address_mapping);
+  virtual unsigned set_index(new_addr_type addr) const;
+
+ private:
+  linear_to_raw_address_translation *m_address_mapping;
+};
+
+
 
 class mshr_table {
  public:

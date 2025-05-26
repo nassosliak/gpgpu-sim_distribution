@@ -262,10 +262,10 @@ class shd_warp_t {
   }
   bool inst_in_pipeline() const { return m_inst_in_pipeline > 0; }
   void inc_inst_in_pipeline() { m_inst_in_pipeline++; }
-  void dec_inst_in_pipeline() {
-    assert(m_inst_in_pipeline > 0);
-    m_inst_in_pipeline--;
-  }
+  // void dec_inst_in_pipeline() {
+  //   assert(m_inst_in_pipeline > 0);
+  //   m_inst_in_pipeline--;
+  // }
 
   unsigned long long get_streamID() const { return m_streamID; }
   unsigned get_cta_id() const { return m_cta_id; }
@@ -1119,13 +1119,15 @@ class shader_core_config;
 class simd_function_unit {
  public:
   simd_function_unit(const shader_core_config *config);
-  ~simd_function_unit() { delete m_dispatch_reg; }
-
+  virtual ~simd_function_unit() { delete m_dispatch_reg; }
+  virtual bool empty() const { return true; } // Default: not pipeline, always empty
   // modifiers
   virtual void issue(register_set &source_reg);
   virtual void cycle() = 0;
   virtual void active_lanes_in_pipeline() = 0;
-
+  virtual bool is_occupied() const {
+        return !occupied.none(); // Returns true if any bits are set
+    }
   // accessors
   virtual unsigned clock_multiplier() const { return 1; }
   virtual bool can_issue(const warp_inst_t &inst) const {
@@ -1173,6 +1175,7 @@ class pipelined_simd_unit : public simd_function_unit {
   virtual bool can_issue(const warp_inst_t &inst) const {
     return simd_function_unit::can_issue(inst);
   }
+  
   virtual bool is_issue_partitioned() = 0;
   unsigned get_issue_reg_id() { return m_issue_reg_id; }
   virtual void print(FILE *fp) const {
@@ -1355,6 +1358,16 @@ class ldst_unit : public pipelined_simd_unit {
   /* A multi-level map: unsigned (warp_id) -> unsigned (pc) -> unsigned (addr)
    * -> unsigned (count)
    */
+   l1_cache* get_L1D() const { return m_L1D; }
+    void set_L1D(l1_cache* l1d) { m_L1D = l1d; }
+    void delete_L1D() {
+        delete m_L1D;
+        m_L1D = nullptr;
+    }
+    void set_L1D_cache(l1_cache* cache) {
+        if (m_L1D) delete m_L1D;
+        m_L1D = cache;
+    }
   std::map<unsigned /*warp_id*/,
            std::map<unsigned /*pc*/,
                     std::map<unsigned /*addr*/, unsigned /*count*/>>>
@@ -1509,12 +1522,18 @@ struct specialized_unit_params {
 
 class shader_core_config : public core_config {
  public:
-  shader_core_config(gpgpu_context *ctx) : core_config(ctx) {
-    pipeline_widths_string = NULL;
-    gpgpu_ctx = ctx;
-  }
+  bool m_dynamic_reconfig_enabled;
+    shader_core_config(gpgpu_context* ctx);
 
   void init() {
+    if (!gpgpu_shader_core_pipeline_opt) {
+      printf("GPGPU-Sim uArch: error: gpgpu_shader_core_pipeline_opt is not set\n");
+      abort();
+    }
+    if (!pipeline_widths_string) {
+      printf("GPGPU-Sim uArch: error: pipeline_widths_string is not set\n");
+      abort();
+    }
     int ntok = sscanf(gpgpu_shader_core_pipeline_opt, "%d:%d",
                       &n_thread_per_shader, &warp_size);
     if (ntok != 2) {
@@ -1555,7 +1574,12 @@ class shader_core_config : public core_config {
     }
     max_warps_per_shader = n_thread_per_shader / warp_size;
     assert(!(n_thread_per_shader % warp_size));
-
+    for (int i = 0; i < N_PIPELINE_STAGES; ++i) {
+      if (pipe_widths[i] <= 0) {
+        printf("GPGPU-Sim uArch: error: pipe_widths[%d] not set or invalid\n", i);
+        abort();
+      }
+    }
     set_pipeline_latency();
 
     m_L1I_config.init(m_L1I_config.m_config_string, FuncCachePreferNone);
@@ -1887,6 +1911,8 @@ class shader_core_stats : public shader_core_stats_pod {
         (unsigned *)calloc(config->num_shader(), sizeof(unsigned));
     m_active_fu_lanes =
         (unsigned *)calloc(config->num_shader(), sizeof(unsigned));
+    m_active_fu_mem_lanes =
+        (unsigned *)calloc(config->num_shader(), sizeof(unsigned));
     m_active_exu_threads =
         (double *)calloc(config->num_shader(), sizeof(double));
     m_active_exu_warps = (double *)calloc(config->num_shader(), sizeof(double));
@@ -1944,11 +1970,6 @@ class shader_core_stats : public shader_core_stats_pod {
     free(m_num_fpmul_acesses);
     free(m_num_idiv_acesses);
     free(m_num_fpdiv_acesses);
-    free(m_num_sp_acesses);
-    free(m_num_sfu_acesses);
-    free(m_num_tensor_core_acesses);
-    free(m_num_tex_acesses);
-    free(m_num_const_acesses);
     free(m_num_dp_acesses);
     free(m_num_dpmul_acesses);
     free(m_num_dpdiv_acesses);
@@ -2065,6 +2086,8 @@ class shader_core_ctx : public core_t {
   // used by simt_core_cluster:
   // modifiers
   void cycle();
+  void check_exec_unit_reconfiguration();
+  void init_reconfigurations();
   void reinit(unsigned start_thread, unsigned end_thread,
               bool reset_not_completed);
   void issue_block2core(class kernel_info_t &kernel);
@@ -2116,8 +2139,32 @@ class shader_core_ctx : public core_t {
   void decrement_atomic_count(unsigned wid, unsigned n);
   void inc_store_req(unsigned warp_id) { m_warp[warp_id]->inc_store_req(); }
   void dec_inst_in_pipeline(unsigned warp_id) {
-    m_warp[warp_id]->dec_inst_in_pipeline();
-  }  // also used in writeback()
+        if (m_inst_in_pipeline > 0) {
+            m_inst_in_pipeline--;
+            
+            // Also decrement the warp's instruction count if valid warp_id
+            if (warp_id < m_config->max_warps_per_shader && m_warp[warp_id]) {
+                m_warp[warp_id]->dec_inst_in_pipeline();
+            }
+        }
+        #ifdef DEBUG
+        else {
+            printf("Warning: Trying to decrement instruction pipeline count when it's already 0\n");
+        }
+        #endif
+    }
+
+    // Keep a no-parameter version for backward compatibility
+    void dec_inst_in_pipeline() {
+        if (m_inst_in_pipeline > 0) {
+            m_inst_in_pipeline--;
+        }
+        #ifdef DEBUG
+        else {
+            printf("Warning: Trying to decrement instruction pipeline count when it's already 0\n");
+        }
+        #endif
+    }
   void store_ack(class mem_fetch *mf);
   bool warp_waiting_at_mem_barrier(unsigned warp_id);
   void set_max_cta(const kernel_info_t &kernel);
@@ -2567,12 +2614,43 @@ class shader_core_ctx : public core_t {
   int find_available_hwtid(unsigned int cta_size, bool occupy);
 
  private:
+
+
+
+  l1d_cache_config m_L1D_config;
   unsigned int m_occupied_n_threads;
   unsigned int m_occupied_shmem;
   unsigned int m_occupied_regs;
   unsigned int m_occupied_ctas;
   std::bitset<MAX_THREAD_PER_SM> m_occupied_hwtid;
   std::map<unsigned int, unsigned int> m_occupied_cta_to_hwtid;
+  bool m_dynamic_reconfig_enabled;
+  unsigned m_inst_in_pipeline;
+  std::vector<unsigned long long> m_cache_reconfig_instrs;
+  bool m_reconfig_needed;
+  unsigned m_current_config; 
+struct ExecUnitReconfig {
+    ExecUnitReconfig() : 
+        instr_id(0),
+        unit_type(""),
+        num_units(0), 
+        latency(0),
+        cache_size(0),
+        cache_assoc(0), 
+        line_size(0),
+        banks(0) {}
+
+    unsigned long long instr_id;
+    std::string unit_type;
+    unsigned num_units;
+    unsigned latency; 
+    unsigned cache_size;
+    unsigned cache_assoc;
+    unsigned line_size;
+    unsigned banks;
+};
+  std::vector<ExecUnitReconfig> m_reconfig_points;
+  std::vector<shader_core_config*> m_saved_configs;
 };
 
 class exec_shader_core_ctx : public shader_core_ctx {
