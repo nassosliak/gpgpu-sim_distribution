@@ -704,7 +704,7 @@ void shader_core_config::reg_options(class OptionParser *opp) {
       option_parser_register(opp, "-gpgpu_enable_reconfig", OPT_BOOL,
                           &m_dynamic_reconfig_enabled,
                           "Enable dynamic reconfiguration of execution units and caches", 
-                          "1");
+                          "0");
 }
 
 void gpgpu_sim_config::reg_options(option_parser_t opp) {
@@ -1327,6 +1327,8 @@ void gpgpu_sim::print_stats(unsigned long long streamID) {
 
 void gpgpu_sim::deadlock_check() {
   if (m_config.gpu_deadlock_detect && gpu_deadlock) {
+    // Add this line:
+    this->dump_pipeline((0x40|0x4|0x1), 0, 0);
     fflush(stdout);
     printf(
         "\n\nGPGPU-Sim uArch: ERROR ** deadlock detected: last writeback core "

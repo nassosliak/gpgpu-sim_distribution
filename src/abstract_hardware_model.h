@@ -1089,7 +1089,6 @@ class warp_inst_t : public inst_t {
   virtual ~warp_inst_t() {}
 
   // modifiers
-  void inc_inst_in_pipeline() { m_inst_in_pipeline++; }
   void broadcast_barrier_reduction(const active_mask_t &access_mask);
   void do_atomic(bool forceDo = false);
   void do_atomic(const active_mask_t &access_mask, bool forceDo = false);
@@ -1276,7 +1275,7 @@ class warp_inst_t : public inst_t {
   bool m_is_ldgsts;
   bool m_is_ldgdepbar;
   bool m_is_depbar;
-  unsigned m_inst_in_pipeline = 0;
+
   unsigned int m_depbar_group_no;
 };
 
@@ -1366,27 +1365,28 @@ class core_t {
 // register that can hold multiple instructions.
 class register_set {
  public:
- void clear() {
+  register_set(unsigned num, const char *name) {
+    for (unsigned i = 0; i < num; i++) {
+      regs.push_back(new warp_inst_t());
+    }
+    m_name = name;
+  }
+  void clear() {
         for (auto& reg : regs) {
             if (reg) {
                 reg->clear();
             }
         }
     }
-  register_set(unsigned num, const char *name) : m_name(name) {
-        regs.resize(num, nullptr);
-        for (unsigned i = 0; i < num; i++) {
-            regs[i] = new warp_inst_t(); // Create new instruction
-        }
+    bool empty() const {
+    // Returns true if all pipeline slots are empty
+    for (unsigned i = 0; i < regs.size(); ++i) {
+        if (!regs[i]->empty()) return false;
     }
-    ~register_set() {
-        // Add proper cleanup
-        for (auto reg : regs) {
-            delete reg;
-        }
-        regs.clear();
-    }
+    return true;
+}
   const char *get_name() { return m_name; }
+
   bool has_free() {
     for (unsigned i = 0; i < regs.size(); i++) {
       if (regs[i]->empty()) {
@@ -1403,21 +1403,18 @@ class register_set {
     assert(reg_id < regs.size());
     return regs[reg_id]->empty();
   }
-  bool has_ready() const {
-    // Check each register in the set for ready status
+  bool has_ready() {
     for (unsigned i = 0; i < regs.size(); i++) {
-      if (regs[i] != nullptr && !regs[i]->empty()) {
+      if (not regs[i]->empty()) {
         return true;
       }
     }
     return false;
   }
   bool has_ready(bool sub_core_model, unsigned reg_id) {
-    if (!sub_core_model) {
-      return has_ready();
-    }
+    if (!sub_core_model) return has_ready();
     assert(reg_id < regs.size());
-    return (regs[reg_id] != nullptr && !regs[reg_id]->empty());
+    return (not regs[reg_id]->empty());
   }
 
   unsigned get_ready_reg_id() {
@@ -1475,25 +1472,27 @@ class register_set {
   }
 
   warp_inst_t **get_ready() {
+    warp_inst_t **ready;
+    ready = NULL;
     for (unsigned i = 0; i < regs.size(); i++) {
-      if (regs[i] != nullptr && !regs[i]->empty()) {
-        return &regs[i];
+      if (not regs[i]->empty()) {
+        if (ready and (*ready)->get_uid() < regs[i]->get_uid()) {
+          // ready is oldest
+        } else {
+          ready = &regs[i];
+        }
       }
     }
-    return nullptr;
+    return ready;
   }
-  // Modify get_ready to add null checks
-    warp_inst_t **get_ready(bool sub_core_model, unsigned reg_id) {
-        if (!sub_core_model) {
-            return get_ready();
-        }
-        
-        if (reg_id >= regs.size() || regs[reg_id] == nullptr) {
-            return nullptr;
-        }
-
-        return regs[reg_id]->empty() ? nullptr : &regs[reg_id];
-    }
+  warp_inst_t **get_ready(bool sub_core_model, unsigned reg_id) {
+    if (!sub_core_model) return get_ready();
+    warp_inst_t **ready;
+    ready = NULL;
+    assert(reg_id < regs.size());
+    if (not regs[reg_id]->empty()) ready = &regs[reg_id];
+    return ready;
+  }
 
   void print(FILE *fp) const {
     fprintf(fp, "%s : @%p\n", m_name, this);
@@ -1527,7 +1526,7 @@ class register_set {
     return NULL;
   }
 
-  unsigned get_size() { return regs.size(); }
+ unsigned get_size() const { return regs.size(); }
 
  private:
   std::vector<warp_inst_t *> regs;

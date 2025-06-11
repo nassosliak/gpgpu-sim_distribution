@@ -577,6 +577,12 @@ class watchpoint_event {
 
 class gpgpu_sim : public gpgpu_t {
  public:
+ simt_core_cluster* get_cluster(unsigned cluster_id) const {
+        if (cluster_id < m_shader_config->n_simt_clusters) {
+            return m_cluster[cluster_id];
+        }
+        return nullptr;
+    }
   gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx);
 
   void log_phase_behavior();

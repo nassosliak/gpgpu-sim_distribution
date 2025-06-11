@@ -74,7 +74,19 @@
 #define WRITE_MASK_SIZE 8
 
 class gpgpu_context;
-
+struct ExecUnitReconfig {
+    unsigned long long instr_id;
+    std::string unit_type;
+    unsigned num_units;
+    unsigned latency;
+    unsigned cache_size;
+    unsigned cache_assoc;
+    unsigned line_size;
+    unsigned banks;
+    
+    ExecUnitReconfig() : instr_id(0), num_units(0), latency(0), 
+                        cache_size(0), cache_assoc(0), line_size(0), banks(0) {}
+};
 enum exec_unit_type_t {
   NONE = 0,
   SP = 1,
@@ -108,6 +120,7 @@ class shd_warp_t {
     m_inst_in_pipeline = 0;
     reset();
   }
+  bool pipeline_fully_drained() const;
   void reset() {
     assert(m_stores_outstanding == 0);
     assert(m_inst_in_pipeline == 0);
@@ -262,10 +275,10 @@ class shd_warp_t {
   }
   bool inst_in_pipeline() const { return m_inst_in_pipeline > 0; }
   void inc_inst_in_pipeline() { m_inst_in_pipeline++; }
-  // void dec_inst_in_pipeline() {
-  //   assert(m_inst_in_pipeline > 0);
-  //   m_inst_in_pipeline--;
-  // }
+  void dec_inst_in_pipeline() {
+    assert(m_inst_in_pipeline > 0);
+    m_inst_in_pipeline--;
+  }
 
   unsigned long long get_streamID() const { return m_streamID; }
   unsigned get_cta_id() const { return m_cta_id; }
@@ -642,6 +655,14 @@ class opndcoll_rfu_t {  // operand collector based register file unit
     m_shader = NULL;
     m_initialized = false;
   }
+  void reset_for_reconfiguration() {
+    m_cu.clear();
+    m_cus.clear();
+    m_dispatch_units.clear();
+    m_in_ports.clear();
+    m_initialized = false;
+  }
+  bool all_cu_free() const;
   void add_cu_set(unsigned cu_set, unsigned num_cu, unsigned num_dispatch);
   typedef std::vector<register_set *> port_vector_t;
   typedef std::vector<unsigned int> uint_vector_t;
@@ -1124,10 +1145,11 @@ class simd_function_unit {
   // modifiers
   virtual void issue(register_set &source_reg);
   virtual void cycle() = 0;
+  bool is_occupied() const { return occupied.any(); }
   virtual void active_lanes_in_pipeline() = 0;
-  virtual bool is_occupied() const {
-        return !occupied.none(); // Returns true if any bits are set
-    }
+  // virtual bool is_occupied() const {
+  //       return !occupied.none(); // Returns true if any bits are set
+  //   }
   // accessors
   virtual unsigned clock_multiplier() const { return 1; }
   virtual bool can_issue(const warp_inst_t &inst) const {
@@ -1162,6 +1184,7 @@ class pipelined_simd_unit : public simd_function_unit {
   virtual unsigned get_active_lanes_in_pipeline();
 
   virtual void active_lanes_in_pipeline() = 0;
+  bool has_active_instructions() const { return active_insts_in_pipeline > 0; }
   /*
       virtual void issue( register_set& source_reg )
       {
@@ -1358,6 +1381,8 @@ class ldst_unit : public pipelined_simd_unit {
   /* A multi-level map: unsigned (warp_id) -> unsigned (pc) -> unsigned (addr)
    * -> unsigned (count)
    */
+   bool pending_writes_empty() const;
+bool response_fifo_empty() const;
    l1_cache* get_L1D() const { return m_L1D; }
     void set_L1D(l1_cache* l1d) { m_L1D = l1d; }
     void delete_L1D() {
@@ -1523,8 +1548,14 @@ struct specialized_unit_params {
 class shader_core_config : public core_config {
  public:
   bool m_dynamic_reconfig_enabled;
-    shader_core_config(gpgpu_context* ctx);
+   shader_core_config(gpgpu_context *ctx) : core_config(ctx) {
 
+    pipeline_widths_string = NULL;
+
+    gpgpu_ctx = ctx;
+
+  }
+  virtual ~shader_core_config() {}
   void init() {
     if (!gpgpu_shader_core_pipeline_opt) {
       printf("GPGPU-Sim uArch: error: gpgpu_shader_core_pipeline_opt is not set\n");
@@ -1970,6 +2001,15 @@ class shader_core_stats : public shader_core_stats_pod {
     free(m_num_fpmul_acesses);
     free(m_num_idiv_acesses);
     free(m_num_fpdiv_acesses);
+    free(m_num_sp_acesses);
+
+    free(m_num_sfu_acesses);
+
+    free(m_num_tensor_core_acesses);
+
+    free(m_num_tex_acesses);
+
+    free(m_num_const_acesses);
     free(m_num_dp_acesses);
     free(m_num_dpmul_acesses);
     free(m_num_dpdiv_acesses);
@@ -2086,8 +2126,12 @@ class shader_core_ctx : public core_t {
   // used by simt_core_cluster:
   // modifiers
   void cycle();
+
   void check_exec_unit_reconfiguration();
+  bool pipeline_fully_drained() const;
+  bool execution_pipeline_drained() const;
   void init_reconfigurations();
+  void perform_reconfiguration(const ExecUnitReconfig& reconfig);
   void reinit(unsigned start_thread, unsigned end_thread,
               bool reset_not_completed);
   void issue_block2core(class kernel_info_t &kernel);
@@ -2119,11 +2163,15 @@ class shader_core_ctx : public core_t {
   }
   kernel_info_t *get_kernel() { return m_kernel; }
   unsigned get_sid() const { return m_sid; }
-
+  bool get_reconfig_dispatch_stall() const { return m_reconfig_dispatch_stall; }
   // used by functional simulation:
   // modifiers
   virtual void warp_exit(unsigned warp_id);
+    void dec_inst_in_pipeline(unsigned warp_id) {
 
+    m_warp[warp_id]->dec_inst_in_pipeline();
+
+  }  // also used in writeback()
   // Ni: Unset ldgdepbar
   void unset_depbar(const warp_inst_t &inst);
 
@@ -2138,33 +2186,7 @@ class shader_core_ctx : public core_t {
   void mem_instruction_stats(const warp_inst_t &inst);
   void decrement_atomic_count(unsigned wid, unsigned n);
   void inc_store_req(unsigned warp_id) { m_warp[warp_id]->inc_store_req(); }
-  void dec_inst_in_pipeline(unsigned warp_id) {
-        if (m_inst_in_pipeline > 0) {
-            m_inst_in_pipeline--;
-            
-            // Also decrement the warp's instruction count if valid warp_id
-            if (warp_id < m_config->max_warps_per_shader && m_warp[warp_id]) {
-                m_warp[warp_id]->dec_inst_in_pipeline();
-            }
-        }
-        #ifdef DEBUG
-        else {
-            printf("Warning: Trying to decrement instruction pipeline count when it's already 0\n");
-        }
-        #endif
-    }
-
-    // Keep a no-parameter version for backward compatibility
-    void dec_inst_in_pipeline() {
-        if (m_inst_in_pipeline > 0) {
-            m_inst_in_pipeline--;
-        }
-        #ifdef DEBUG
-        else {
-            printf("Warning: Trying to decrement instruction pipeline count when it's already 0\n");
-        }
-        #endif
-    }
+  
   void store_ack(class mem_fetch *mf);
   bool warp_waiting_at_mem_barrier(unsigned warp_id);
   void set_max_cta(const kernel_info_t &kernel);
@@ -2622,35 +2644,29 @@ class shader_core_ctx : public core_t {
   unsigned int m_occupied_shmem;
   unsigned int m_occupied_regs;
   unsigned int m_occupied_ctas;
+  bool m_waiting_for_reconvergence; // Tracks if we're waiting for in-flight instructions
+  bool m_reconfig_in_progress = false;
+  unsigned m_pending_writes; // Count of pending register writes
+  bool m_reconfig_safe; 
+  bool m_reconfig_dispatch_stall;
+  bool m_reconfig_stall_active;
+  unsigned m_reconfig_stall_cycles;
+  static unsigned long long s_global_total_instructions;
+  unsigned m_pipeline_depth;
+  static const unsigned MAX_RECONFIG_STALL_CYCLES = 10000;
+  bool m_dispatch_stall_for_reconfig;
+    unsigned m_dispatch_stall_cycles;
+    static const unsigned DISPATCH_DRAIN_CYCLES = 50; // Reduced from 200
   std::bitset<MAX_THREAD_PER_SM> m_occupied_hwtid;
   std::map<unsigned int, unsigned int> m_occupied_cta_to_hwtid;
   bool m_dynamic_reconfig_enabled;
-  unsigned m_inst_in_pipeline;
-  std::vector<unsigned long long> m_cache_reconfig_instrs;
+  // unsigned m_inst_in_pipeline;
+  std::vector<ExecUnitReconfig> m_reconfig_points;
+    std::vector<shader_core_config*> m_saved_configs;
   bool m_reconfig_needed;
   unsigned m_current_config; 
-struct ExecUnitReconfig {
-    ExecUnitReconfig() : 
-        instr_id(0),
-        unit_type(""),
-        num_units(0), 
-        latency(0),
-        cache_size(0),
-        cache_assoc(0), 
-        line_size(0),
-        banks(0) {}
+ 
 
-    unsigned long long instr_id;
-    std::string unit_type;
-    unsigned num_units;
-    unsigned latency; 
-    unsigned cache_size;
-    unsigned cache_assoc;
-    unsigned line_size;
-    unsigned banks;
-};
-  std::vector<ExecUnitReconfig> m_reconfig_points;
-  std::vector<shader_core_config*> m_saved_configs;
 };
 
 class exec_shader_core_ctx : public shader_core_ctx {
@@ -2687,6 +2703,12 @@ class exec_shader_core_ctx : public shader_core_ctx {
 
 class simt_core_cluster {
  public:
+ shader_core_ctx* get_core(unsigned core_id) const {
+        if (core_id < m_config->n_simt_cores_per_cluster) {
+            return m_core[core_id];
+        }
+        return nullptr;
+    }
   simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
                     const shader_core_config *config,
                     const memory_config *mem_config, shader_core_stats *stats,
@@ -2743,7 +2765,7 @@ class simt_core_cluster {
   memory_stats_t *m_memory_stats;
   shader_core_ctx **m_core;
   const memory_config *m_mem_config;
-
+    
   unsigned m_cta_issue_next_core;
   std::list<unsigned> m_core_sim_order;
   std::list<mem_fetch *> m_response_fifo;
