@@ -158,35 +158,38 @@ bool opndcoll_rfu_t::all_cu_free() const {
 
 // Fix for execution_pipeline_drained() method around line 168
 bool shader_core_ctx::execution_pipeline_drained() const {
-    // Check if any new instructions are being dispatched
     for (const auto& reg : m_pipeline_reg) {
         if (!reg.empty()) {
+            printf("Core %u: Pipeline reg not empty\n", m_sid);
             return false;
         }
     }
-    
-    // Check if functional units have pending work
     for (auto* fu : m_fu) {
-        if (fu) {
-            // Use public method to check if functional unit is occupied
-            if (fu->is_occupied()) {
-                return false;
-            }
+        if (fu && fu->is_occupied()) {
+            printf("Core %u: FU occupied\n", m_sid);
+            return false;
         }
     }
-    
-    // Check operand collector
     if (!m_operand_collector.all_cu_free()) {
+        printf("Core %u: Operand collector not free\n", m_sid);
         return false;
     }
-    
-    // Check if there are pending writes in scoreboard
     for (unsigned i = 0; i < m_config->max_warps_per_shader; ++i) {
         if (m_scoreboard->pendingWrites(i)) {
+            printf("Core %u: Scoreboard pending writes in warp %u\n", m_sid, i);
             return false;
         }
     }
-    
+    if (m_ldst_unit) {
+        if (!m_ldst_unit->response_fifo_empty()) {
+            printf("Core %u: LDST response FIFO not empty\n", m_sid);
+            return false;
+        }
+        if (!m_ldst_unit->pending_writes_empty()) {
+            printf("Core %u: LDST pending writes not empty\n", m_sid);
+            return false;
+        }
+    }
     return true;
 }
 
@@ -554,16 +557,31 @@ void shader_core_ctx::check_exec_unit_reconfiguration() {
     unsigned total_cores = m_config->n_simt_clusters * m_config->n_simt_cores_per_cluster;
     unsigned drained_cores = 0;
     for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
-        simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
-        for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
-            shader_core_ctx* core = cluster->get_core(core_id);
-            if (core && core->execution_pipeline_drained()) {
-                drained_cores++;
-            } else {
-                all_cores_drained = false;
+    simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
+    for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
+        shader_core_ctx* core = cluster->get_core(core_id);
+        if (core) {
+            // Force exit for functionally done warps
+            for (unsigned i = 0; i < core->get_config()->max_warps_per_shader; ++i) {
+                if (core->m_warp[i]->functional_done() && !core->m_warp[i]->done_exit()) {
+                    core->m_warp[i]->set_done_exit();
+                }
+            }
+            // Release scoreboard for functionally done warps
+            for (unsigned i = 0; i < core->get_config()->max_warps_per_shader; ++i) {
+                if (core->m_warp[i]->functional_done()) {
+                    if (!core->m_warp[i]->ibuffer_empty()) {
+    core->m_scoreboard->releaseRegisters(core->m_warp[i]->ibuffer_next_inst());
+}
+                }
+            }
+            // Flush LDST if all warps done
+            if (core->get_not_completed() == 0) {
+                core->m_ldst_unit->flush();
             }
         }
     }
+}
 
     m_dispatch_stall_cycles++;
     if (!all_cores_drained) {
