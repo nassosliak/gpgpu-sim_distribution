@@ -1629,75 +1629,75 @@ void gpgpu_sim::gpu_print_stat(unsigned long long streamID) {
     total_l2_css.clear();
 //---------------------------------------------------------------//
     // printf("\n========= L2 cache stats =========\n");
-    // for (unsigned i = 0; i < m_memory_config->m_n_mem_sub_partition; i++) {
-    //   m_memory_sub_partition[i]->accumulate_L2cache_stats(l2_stats);
-    //   m_memory_sub_partition[i]->get_L2cache_sub_stats(l2_css);
+    for (unsigned i = 0; i < m_memory_config->m_n_mem_sub_partition; i++) {
+      m_memory_sub_partition[i]->accumulate_L2cache_stats(l2_stats);
+      m_memory_sub_partition[i]->get_L2cache_sub_stats(l2_css);
 
-      // fprintf(stdout,
-      //         "L2_cache_bank[%d]: Access = %llu, Miss = %llu, Miss_rate = "
-      //         "%.3lf, Pending_hits = %llu, Reservation_fails = %llu\n",
-      //         i, l2_css.accesses, l2_css.misses,
-      //         (double)l2_css.misses / (double)l2_css.accesses,
-      //         l2_css.pending_hits, l2_css.res_fails);
+      fprintf(stdout,
+              "L2_cache_bank[%d]: Access = %llu, Miss = %llu, Miss_rate = "
+              "%.3lf, Pending_hits = %llu, Reservation_fails = %llu\n",
+              i, l2_css.accesses, l2_css.misses,
+              (double)l2_css.misses / (double)l2_css.accesses,
+              l2_css.pending_hits, l2_css.res_fails);
 
-      // total_l2_css += l2_css;
-    // }
-    // if (!m_memory_config->m_L2_config.disabled() &&
-    //     m_memory_config->m_L2_config.get_num_lines()) {
-    //   // L2c_print_cache_stat();
-    //   printf("L2_total_cache_accesses = %llu\n", total_l2_css.accesses);
-    //   printf("L2_total_cache_misses = %llu\n", total_l2_css.misses);
-    //   if (total_l2_css.accesses > 0)
-    //     printf("L2_total_cache_miss_rate = %.4lf\n",
-    //            (double)total_l2_css.misses / (double)total_l2_css.accesses);
-    //   printf("L2_total_cache_pending_hits = %llu\n", total_l2_css.pending_hits);
-    //   printf("L2_total_cache_reservation_fails = %llu\n",
-    //          total_l2_css.res_fails);
-    //   printf("L2_total_cache_breakdown:\n");
-    //   l2_stats.print_stats(stdout, streamID, "L2_cache_stats_breakdown");
-    //   printf("L2_total_cache_reservation_fail_breakdown:\n");
-    //   l2_stats.print_fail_stats(stdout, streamID,
-    //                             "L2_cache_stats_fail_breakdown");
-    //   total_l2_css.print_port_stats(stdout, "L2_cache");
-    // }
+      total_l2_css += l2_css;
+    }
+    if (!m_memory_config->m_L2_config.disabled() &&
+        m_memory_config->m_L2_config.get_num_lines()) {
+      // L2c_print_cache_stat();
+      printf("L2_total_cache_accesses = %llu\n", total_l2_css.accesses);
+      printf("L2_total_cache_misses = %llu\n", total_l2_css.misses);
+      if (total_l2_css.accesses > 0)
+        printf("L2_total_cache_miss_rate = %.4lf\n",
+               (double)total_l2_css.misses / (double)total_l2_css.accesses);
+      printf("L2_total_cache_pending_hits = %llu\n", total_l2_css.pending_hits);
+      printf("L2_total_cache_reservation_fails = %llu\n",
+             total_l2_css.res_fails);
+      printf("L2_total_cache_breakdown:\n");
+      l2_stats.print_stats(stdout, streamID, "L2_cache_stats_breakdown");
+      printf("L2_total_cache_reservation_fail_breakdown:\n");
+      l2_stats.print_fail_stats(stdout, streamID,
+                                "L2_cache_stats_fail_breakdown");
+      total_l2_css.print_port_stats(stdout, "L2_cache");
+    }
     //---------------------------------------------------------------//
   }
 //---------------------------------------------------------------//
-//   if (m_config.gpgpu_cflog_interval != 0) {
-//     spill_log_to_file(stdout, 1, gpu_sim_cycle);
-//     insn_warp_occ_print(stdout);
-//   }
-//   if (gpgpu_ctx->func_sim->gpgpu_ptx_instruction_classification) {
-//     StatDisp(gpgpu_ctx->func_sim->g_inst_classification_stat
-//                  [gpgpu_ctx->func_sim->g_ptx_kernel_count]);
-//     StatDisp(gpgpu_ctx->func_sim->g_inst_op_classification_stat
-//                  [gpgpu_ctx->func_sim->g_ptx_kernel_count]);
-//   }
+  if (m_config.gpgpu_cflog_interval != 0) {
+    spill_log_to_file(stdout, 1, gpu_sim_cycle);
+    insn_warp_occ_print(stdout);
+  }
+  if (gpgpu_ctx->func_sim->gpgpu_ptx_instruction_classification) {
+    StatDisp(gpgpu_ctx->func_sim->g_inst_classification_stat
+                 [gpgpu_ctx->func_sim->g_ptx_kernel_count]);
+    StatDisp(gpgpu_ctx->func_sim->g_inst_op_classification_stat
+                 [gpgpu_ctx->func_sim->g_ptx_kernel_count]);
+  }
 
-// #ifdef GPGPUSIM_POWER_MODEL
-//   if (m_config.g_power_simulation_enabled) {
-//     m_gpgpusim_wrapper->detect_print_steady_state(
-//         1, gpu_tot_sim_insn + gpu_sim_insn);
-//   }
-// #endif
+#ifdef GPGPUSIM_POWER_MODEL
+  if (m_config.g_power_simulation_enabled) {
+    m_gpgpusim_wrapper->detect_print_steady_state(
+        1, gpu_tot_sim_insn + gpu_sim_insn);
+  }
+#endif
 
 //   // Interconnect power stat print
-//   long total_simt_to_mem = 0;
-//   long total_mem_to_simt = 0;
-//   long temp_stm = 0;
-//   long temp_mts = 0;
-//   for (unsigned i = 0; i < m_config.num_cluster(); i++) {
-//     m_cluster[i]->get_icnt_stats(temp_stm, temp_mts);
-//     total_simt_to_mem += temp_stm;
-//     total_mem_to_simt += temp_mts;
-//   }
-//   printf("\nicnt_total_pkts_mem_to_simt=%ld\n", total_mem_to_simt);
-//   printf("icnt_total_pkts_simt_to_mem=%ld\n", total_simt_to_mem);
+  long total_simt_to_mem = 0;
+  long total_mem_to_simt = 0;
+  long temp_stm = 0;
+  long temp_mts = 0;
+  for (unsigned i = 0; i < m_config.num_cluster(); i++) {
+    m_cluster[i]->get_icnt_stats(temp_stm, temp_mts);
+    total_simt_to_mem += temp_stm;
+    total_mem_to_simt += temp_mts;
+  }
+  printf("\nicnt_total_pkts_mem_to_simt=%ld\n", total_mem_to_simt);
+  printf("icnt_total_pkts_simt_to_mem=%ld\n", total_simt_to_mem);
 
-//   time_vector_print();
-//   fflush(stdout);
+  time_vector_print();
+  fflush(stdout);
 
-//   clear_executed_kernel_info();
+  clear_executed_kernel_info();
 //---------------------------------------------------------------//
 }
 

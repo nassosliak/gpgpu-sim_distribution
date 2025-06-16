@@ -76,13 +76,15 @@
 class gpgpu_context;
 struct ExecUnitReconfig {
     unsigned long long instr_id;
+    std::string gpgpusim_config_path;
+    std::string trace_config_path;
     std::string unit_type;
-    unsigned num_units;
     unsigned latency;
     unsigned cache_size;
     unsigned cache_assoc;
     unsigned line_size;
     unsigned banks;
+    unsigned num_units;
     
     ExecUnitReconfig() : instr_id(0), num_units(0), latency(0), 
                         cache_size(0), cache_assoc(0), line_size(0), banks(0) {}
@@ -1156,6 +1158,7 @@ class simd_function_unit {
     return m_dispatch_reg->empty() && !occupied.test(inst.latency);
   }
   virtual bool is_issue_partitioned() = 0;
+  virtual void reset() = 0;
   virtual unsigned get_issue_reg_id() = 0;
   virtual bool stallable() const = 0;
   virtual void print(FILE *fp) const {
@@ -1182,7 +1185,15 @@ class pipelined_simd_unit : public simd_function_unit {
   virtual void cycle();
   virtual void issue(register_set &source_reg);
   virtual unsigned get_active_lanes_in_pipeline();
-
+    virtual void reset() override {
+    // Clear pipeline registers
+    for (unsigned i = 0; i < m_pipeline_depth; i++) {
+      m_pipeline_reg[i]->clear();
+    }
+    m_dispatch_reg->clear();
+    active_insts_in_pipeline = 0;
+    occupied.reset();
+  }
   virtual void active_lanes_in_pipeline() = 0;
   bool has_active_instructions() const { return active_insts_in_pipeline > 0; }
   /*
@@ -1393,6 +1404,10 @@ bool response_fifo_empty() const;
         if (m_L1D) delete m_L1D;
         m_L1D = cache;
     }
+    virtual void reset() override {
+    pipelined_simd_unit::reset();
+    // Optionally clear LD/ST-specific state if needed
+  }
   std::map<unsigned /*warp_id*/,
            std::map<unsigned /*pc*/,
                     std::map<unsigned /*addr*/, unsigned /*count*/>>>
@@ -2126,12 +2141,14 @@ class shader_core_ctx : public core_t {
   // used by simt_core_cluster:
   // modifiers
   void cycle();
-
+unsigned long long m_reconfig_start_cycle = 0;
+unsigned long long m_reconfig_end_cycle = 0;
   void check_exec_unit_reconfiguration();
   bool pipeline_fully_drained() const;
   bool execution_pipeline_drained() const;
   void init_reconfigurations();
   void perform_reconfiguration(const ExecUnitReconfig& reconfig);
+  void add_execution_units_if_increased(const ExecUnitReconfig& reconfig);
   void reinit(unsigned start_thread, unsigned end_thread,
               bool reset_not_completed);
   void issue_block2core(class kernel_info_t &kernel);
@@ -2516,6 +2533,7 @@ class shader_core_ctx : public core_t {
                           unsigned sch_id);
 
   void create_front_pipeline();
+  void create_function_units_and_pipeline_regs();
   void create_schedulers();
   void create_exec_pipeline();
 
