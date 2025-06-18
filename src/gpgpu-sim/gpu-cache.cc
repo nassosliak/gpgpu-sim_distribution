@@ -1406,7 +1406,11 @@ void data_cache::send_write_request(mem_fetch *mf, cache_event request,
   m_miss_queue.push_back(mf);
   mf->set_status(m_miss_queue_status, time);
 }
-
+void data_cache::invalidate() {
+    m_tag_array->invalidate();
+    m_mshrs.clear();
+    m_extra_mf_fields.clear();
+}
 void data_cache::update_m_readable(mem_fetch *mf, unsigned cache_index) {
   cache_block_t *block = m_tag_array->get_block(cache_index);
   for (unsigned i = 0; i < SECTOR_CHUNCK_SIZE; i++) {
@@ -2098,7 +2102,24 @@ void tex_cache::cycle() {
     }
   }
 }
+void tex_cache::invalidate() {
+    // Invalidate all tag array entries
+    m_tags.invalidate();
 
+    // Reset FIFOs and cache blocks
+    while (!m_fragment_fifo.empty()) m_fragment_fifo.pop();
+    while (!m_request_fifo.empty()) m_request_fifo.pop();
+    while (!m_rob.empty()) m_rob.pop();
+    while (!m_result_fifo.empty()) m_result_fifo.pop();
+
+    // Invalidate all data blocks
+    for (unsigned i = 0; i < m_config.get_num_lines(); ++i) {
+        m_cache[i].m_valid = false;
+        m_cache[i].m_block_addr = 0;
+    }
+
+    m_extra_mf_fields.clear();
+}
 /// Place returning cache block into reorder buffer
 void tex_cache::fill(mem_fetch *mf, unsigned time) {
   if (m_config.m_mshr_type == SECTOR_TEX_FIFO) {

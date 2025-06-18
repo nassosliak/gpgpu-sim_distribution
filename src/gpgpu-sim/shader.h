@@ -2152,7 +2152,9 @@ unsigned long long m_reconfig_end_cycle = 0;
   void reinit(unsigned start_thread, unsigned end_thread,
               bool reset_not_completed);
   void issue_block2core(class kernel_info_t &kernel);
-
+l1_cache* m_L1D;
+    read_only_cache* m_L1C;
+    tex_cache* m_L1T;
   void cache_flush();
   void cache_invalidate();
   void accept_fetch_response(mem_fetch *mf);

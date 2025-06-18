@@ -1091,6 +1091,7 @@ class mshr_table {
   bool busy() const { return false; }
   /// Accept a new cache fill response: mark entry ready for processing
   void mark_ready(new_addr_type block_addr, bool &has_atomic);
+  void clear() { m_data.clear(); m_current_response.clear(); }
   /// Returns true if ready accesses exist
   bool access_ready() const { return !m_current_response.empty(); }
   /// Returns next ready access
@@ -1570,7 +1571,7 @@ class data_cache : public baseline_cache {
   }
 
   virtual ~data_cache() {}
-
+void invalidate();
   virtual void init(mem_fetch_allocator *mfcreator) {
     m_memfetch_creator = mfcreator;
 
@@ -1757,7 +1758,7 @@ class l1_cache : public data_cache {
                    L1_WR_ALLOC_R, L1_WRBK_ACC, gpu, level) {}
 
   virtual ~l1_cache() {}
-
+  const cache_config& get_config() const { return m_config; }
   virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf,
                                            unsigned time,
                                            std::list<cache_event> &events);
@@ -1826,6 +1827,7 @@ class tex_cache : public cache_t {
   enum cache_request_status access(new_addr_type addr, mem_fetch *mf,
                                    unsigned time,
                                    std::list<cache_event> &events);
+  void invalidate();
   void cycle();
   /// Place returning cache block into reorder buffer
   void fill(mem_fetch *mf, unsigned time);
