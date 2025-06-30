@@ -927,7 +927,7 @@ class tag_array {
   void fill(unsigned idx, unsigned time, mem_fetch *mf);
   void fill(new_addr_type addr, unsigned time, mem_access_sector_mask_t mask,
             mem_access_byte_mask_t byte_mask, bool is_write);
-
+  bool all_lines_idle() const;
   unsigned size() const { return m_config.get_num_lines(); }
   cache_block_t *get_block(unsigned idx) { return m_lines[idx]; }
 
@@ -1545,7 +1545,7 @@ class read_only_cache : public baseline_cache {
                                            std::list<cache_event> &events);
 
   virtual ~read_only_cache() {}
-
+  bool is_idle() const;
  protected:
   read_only_cache(const char *name, cache_config &config, int core_id,
                   int type_id, mem_fetch_interface *memport,
@@ -1762,7 +1762,7 @@ class l1_cache : public data_cache {
   virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf,
                                            unsigned time,
                                            std::list<cache_event> &events);
-
+  bool is_idle() const;
  protected:
   l1_cache(const char *name, cache_config &config, int core_id, int type_id,
            mem_fetch_interface *memport, mem_fetch_allocator *mfcreator,
@@ -1829,6 +1829,7 @@ class tex_cache : public cache_t {
                                    std::list<cache_event> &events);
   void invalidate();
   void cycle();
+    bool is_idle() const;
   /// Place returning cache block into reorder buffer
   void fill(mem_fetch *mf, unsigned time);
   /// Are any (accepted) accesses that had to wait for memory now ready? (does

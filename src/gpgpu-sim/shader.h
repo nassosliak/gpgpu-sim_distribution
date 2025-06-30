@@ -74,21 +74,47 @@
 #define WRITE_MASK_SIZE 8
 
 class gpgpu_context;
+// ...existing code...
 struct ExecUnitReconfig {
     unsigned long long instr_id;
     std::string gpgpusim_config_path;
     std::string trace_config_path;
     std::string unit_type;
     unsigned latency;
-    unsigned cache_size;
-    unsigned cache_assoc;
-    unsigned line_size;
-    unsigned banks;
     unsigned num_units;
-    
-    ExecUnitReconfig() : instr_id(0), num_units(0), latency(0), 
-                        cache_size(0), cache_assoc(0), line_size(0), banks(0) {}
+
+    // Cache characteristics
+    unsigned l1d_size;
+    unsigned l1d_assoc;
+    unsigned l1d_line_size;
+    unsigned l1d_banks;
+
+    unsigned l1c_size;
+    unsigned l1c_assoc;
+    unsigned l1c_line_size;
+    unsigned l1c_banks;
+
+    unsigned l1t_size;
+    unsigned l1t_assoc;
+    unsigned l1t_line_size;
+    unsigned l1t_banks;
+
+    unsigned l1i_size;
+    unsigned l1i_assoc;
+    unsigned l1i_line_size;
+    unsigned l1i_banks;
+
+    // Optionally add L2 or other cache levels if needed
+
+    ExecUnitReconfig()
+        : instr_id(0), num_units(0), latency(0),
+          l1d_size(0), l1d_assoc(0), l1d_line_size(0), l1d_banks(0),
+          l1c_size(0), l1c_assoc(0), l1c_line_size(0), l1c_banks(0),
+          l1t_size(0), l1t_assoc(0), l1t_line_size(0), l1t_banks(0),
+          l1i_size(0), l1i_assoc(0), l1i_line_size(0), l1i_banks(0)
+    {}
 };
+// ...existing code...
 enum exec_unit_type_t {
   NONE = 0,
   SP = 1,
@@ -1393,7 +1419,10 @@ class ldst_unit : public pipelined_simd_unit {
    * -> unsigned (count)
    */
    bool pending_writes_empty() const;
+   bool is_all_caches_idle() const;
 bool response_fifo_empty() const;
+void set_L1C(read_only_cache* l1c) { m_L1C = l1c; }
+    void set_L1T(tex_cache* l1t) { m_L1T = l1t; }
    l1_cache* get_L1D() const { return m_L1D; }
     void set_L1D(l1_cache* l1d) { m_L1D = l1d; }
     void delete_L1D() {
@@ -1571,6 +1600,7 @@ class shader_core_config : public core_config {
 
   }
   virtual ~shader_core_config() {}
+  void update_from(const shader_core_config& src);
   void init() {
     if (!gpgpu_shader_core_pipeline_opt) {
       printf("GPGPU-Sim uArch: error: gpgpu_shader_core_pipeline_opt is not set\n");
@@ -2143,7 +2173,9 @@ class shader_core_ctx : public core_t {
   void cycle();
 unsigned long long m_reconfig_start_cycle = 0;
 unsigned long long m_reconfig_end_cycle = 0;
+void recreate_caches_after_reconfig(const shader_core_config& new_config);
   void check_exec_unit_reconfiguration();
+  // void force_clear_pipeline_registers();
   bool pipeline_fully_drained() const;
   bool execution_pipeline_drained() const;
   void init_reconfigurations();
@@ -2156,7 +2188,9 @@ l1_cache* m_L1D;
     read_only_cache* m_L1C;
     tex_cache* m_L1T;
   void cache_flush();
+  void copy_cache_config(cache_config& dest, const cache_config& src);
   void cache_invalidate();
+  bool caches_fully_drained() const;
   void accept_fetch_response(mem_fetch *mf);
   void accept_ldst_unit_response(class mem_fetch *mf);
   void broadcast_barrier_reduction(unsigned cta_id, unsigned bar_id,
@@ -2586,7 +2620,7 @@ l1_cache* m_L1D;
   unsigned m_sid;  // shader id
   unsigned m_tpc;  // texture processor cluster id (aka, node id when using
                    // interconnect concentration)
-  const shader_core_config *m_config;
+  shader_core_config *m_config;
   const memory_config *m_memory_config;
   class simt_core_cluster *m_cluster;
 

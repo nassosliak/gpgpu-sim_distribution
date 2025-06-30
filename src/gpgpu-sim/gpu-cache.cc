@@ -144,7 +144,12 @@ unsigned cache_config::hash_function(new_addr_type addr, unsigned m_nset,
       break;
     }
   }
-
+  // if (!(set_index < m_nset)) {
+  //     printf("DEBUG: set_index=%u m_nset=%u addr=0x%llx m_line_sz_log2=%u m_nset_log2=%u m_index_function=%u\n",
+  //            set_index, m_nset, addr, m_line_sz_log2, m_nset_log2, m_index_function);
+  //     fflush(stdout);
+  //     // sleep(30); // Pause for 30 seconds for inspection
+  // }
   // Linear function selected or custom set index function not implemented
   assert((set_index < m_nset) &&
          "\nError: Set index out of bounds. This is caused by "
@@ -488,7 +493,10 @@ void tag_array::new_window() {
   m_prev_snapshot_miss = m_miss + m_sector_miss;
   m_prev_snapshot_pending_hit = m_pending_hit;
 }
-
+bool tag_array::all_lines_idle() const {
+    // Optionally check for pending lines, etc.
+    return pending_lines.empty();
+}
 void tag_array::print(FILE *stream, unsigned &total_access,
                       unsigned &total_misses) const {
   m_config.print(stream);

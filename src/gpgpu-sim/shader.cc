@@ -155,122 +155,28 @@ bool shader_core_ctx::execution_pipeline_drained() const {
 
 
 void shader_core_ctx::perform_reconfiguration(const ExecUnitReconfig& reconfig) {
-    // Create new configuration
-    shader_core_config* new_config = new shader_core_config(*m_config);
-    
+
     // Update the new configuration parameters
     if (reconfig.unit_type == "SP") {
-        new_config->gpgpu_num_sp_units = reconfig.num_units;
-        new_config->max_sp_latency = reconfig.latency;
-    } else if (reconfig.unit_type == "SFU") {
-        new_config->gpgpu_num_sfu_units = reconfig.num_units;
-        new_config->max_sfu_latency = reconfig.latency;
-    } else if (reconfig.unit_type == "DP") {
-        new_config->gpgpu_num_dp_units = reconfig.num_units;
-        new_config->max_dp_latency = reconfig.latency;
-    } else if (reconfig.unit_type == "INT") {
-        new_config->gpgpu_num_int_units = reconfig.num_units;
-        new_config->max_int_latency = reconfig.latency;
-    } else if (reconfig.unit_type == "TENSOR") {
-        new_config->gpgpu_num_tensor_core_units = reconfig.num_units;
-        new_config->max_tensor_core_latency = reconfig.latency;
-    }
+    m_config->gpgpu_num_sp_units = reconfig.num_units;
+    m_config->max_sp_latency = reconfig.latency;
+  } else if (reconfig.unit_type == "SFU") {
+      m_config->gpgpu_num_sfu_units = reconfig.num_units;
+      m_config->max_sfu_latency = reconfig.latency;
+  } else if (reconfig.unit_type == "DP") {
+      m_config->gpgpu_num_dp_units = reconfig.num_units;
+      m_config->max_dp_latency = reconfig.latency;
+  } else if (reconfig.unit_type == "INT") {
+      m_config->gpgpu_num_int_units = reconfig.num_units;
+      m_config->max_int_latency = reconfig.latency;
+  } else if (reconfig.unit_type == "TENSOR") {
+      m_config->gpgpu_num_tensor_core_units = reconfig.num_units;
+      m_config->max_tensor_core_latency = reconfig.latency;
+  }
     
-//     // Save ldst_unit before cleanup
-    ldst_unit* saved_ldst = m_ldst_unit;
-    
-
-    m_config = new_config;
     create_function_units_and_pipeline_regs();
 
-    // 5. Restore ldst_unit if needed (or recreate it)
-    m_ldst_unit = saved_ldst;
-
-    // Get old and new cache config strings
-
-    // std::string old_l1i = extract_cache_config("/accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/gpgpusim.config", "il1");
-
-    // std::string new_l1i = extract_cache_config(reconfig.gpgpusim_config_path, "il1");
-
-    // std::string old_l1c = extract_cache_config("/accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/gpgpusim.config", "const_cache:l1");
-
-    // std::string new_l1c = extract_cache_config(reconfig.gpgpusim_config_path, "const_cache:l1");
-
-    // std::string old_l1t = extract_cache_config("/accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/gpgpusim.config", "tex_cache:l1");
-
-    // std::string new_l1t = extract_cache_config(reconfig.gpgpusim_config_path, "tex_cache:l1");
-
-    // std::string old_l1d = extract_cache_config("/accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/gpgpusim.config", "l1");
-
-    // std::string new_l1d = extract_cache_config(reconfig.gpgpusim_config_path, "l1");
-
-    // // bool l1i_same = (old_l1i == new_l1i);
-
-    // // bool l1c_same = (old_l1c == new_l1c);
-
-    // // bool l1t_same = (old_l1t == new_l1t);
-
-    // // bool l1d_same = (old_l1d == new_l1d);
-
-    // // 3. Delete old caches
-
-    // if (m_L1I) { delete m_L1I; m_L1I = nullptr; }
-
-    // if (m_L1C) { delete m_L1C; m_L1C = nullptr; }
-
-    // if (m_L1T) { delete m_L1T; m_L1T = nullptr; }
-
-    // if (m_ldst_unit) { m_ldst_unit->delete_L1D(); }
-
-
-
-    // // 4. Recreate caches with new config
-
-    // char name[1024];
-
-    // snprintf(name, sizeof(name), "L1I_%03d", m_sid);
-
-    // m_L1I = new read_only_cache(name, m_config->m_L1I_config, m_sid,
-
-    //                             get_shader_instruction_cache_id(), m_icnt,
-
-    //                             IN_L1I_MISS_QUEUE, OTHER_GPU_CACHE, m_gpu);
-
-    // snprintf(name, sizeof(name), "L1C_%03d", m_sid);
-
-    // m_L1C = new read_only_cache(name, m_config->m_L1C_config, m_sid,
-
-    //                             get_shader_constant_cache_id(), m_icnt,
-
-    //                             IN_L1C_MISS_QUEUE, OTHER_GPU_CACHE, m_gpu);
-
-    // snprintf(name, sizeof(name), "L1T_%03d", m_sid);
-
-    // m_L1T = new tex_cache(name, m_config->m_L1T_config, m_sid,
-
-    //                       get_shader_texture_cache_id(), m_icnt,
-
-    //                       IN_L1T_MISS_QUEUE, IN_SHADER_L1T_ROB);
-
-
-
-    // // L1D
-
-    // if (m_ldst_unit) {
-
-    //     snprintf(name, sizeof(name), "L1D_%03d", m_sid);
-
-    //     l1_cache* new_L1D = new l1_cache(name, m_config->m_L1D_config, m_sid,
-
-    //                                      get_shader_normal_cache_id(), m_icnt,
-
-    //                                      m_mem_fetch_allocator,
-
-    //                                      IN_L1D_MISS_QUEUE, m_gpu, L1_GPU_CACHE);
-
-    //     m_ldst_unit->set_L1D(new_L1D);
-
-    // }
+    
     printf("Core %u: Reconfigured %s units to %u (latency: %u)\n", 
            m_sid, reconfig.unit_type.c_str(), reconfig.num_units, reconfig.latency);
 }
@@ -572,7 +478,8 @@ void shader_core_ctx::create_function_units_and_pipeline_regs() {
   // 1. Delete old FUs
 
     for (auto fu : m_fu) {
-        delete fu;
+        // Only delete if not the LDST unit
+        if (fu != m_ldst_unit) delete fu;
     }
     m_fu.clear();
     m_dispatch_port.clear();
@@ -1045,7 +952,7 @@ shader_core_ctx::shader_core_ctx(class gpgpu_sim *gpu,
       m_dynamic_warp_id(0) {
         m_waiting_for_reconvergence = false;
     m_pending_writes = 0;
-    m_reconfig_stall_active = false;\
+    m_reconfig_stall_active = false;
     m_dispatch_stall_for_reconfig = false;
     m_reconfig_dispatch_stall = false;
     m_reconfig_stall_cycles = 0;
@@ -1053,7 +960,7 @@ shader_core_ctx::shader_core_ctx(class gpgpu_sim *gpu,
     m_current_config = 0;
     m_dispatch_stall_cycles = 0;
   m_cluster = cluster;
-  m_config = config;
+m_config = const_cast<shader_core_config *>(config);
   m_memory_config = mem_config;
   m_stats = stats;
   m_dynamic_reconfig_enabled = m_config->m_dynamic_reconfig_enabled;
