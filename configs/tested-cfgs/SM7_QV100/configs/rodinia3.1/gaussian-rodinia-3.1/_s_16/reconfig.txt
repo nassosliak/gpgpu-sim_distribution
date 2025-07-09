@@ -1,0 +1,4 @@
+0 /accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/config1.config /accel-sim-framework/gpu-simulator/configs/tested-cfgs/SM7_QV100/config1.config
+30186 /accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/config2.config /accel-sim-framework/gpu-simulator/configs/tested-cfgs/SM7_QV100/config2.config
+40248 /accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/config1.config /accel-sim-framework/gpu-simulator/configs/tested-cfgs/SM7_QV100/config1.config
+60372 /accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/config2.config /accel-sim-framework/gpu-simulator/configs/tested-cfgs/SM7_QV100/config2.config

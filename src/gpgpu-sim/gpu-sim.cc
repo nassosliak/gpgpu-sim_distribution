@@ -118,9 +118,10 @@ const char* pwr_cmp_label[] = {
 };
 
 // #define MAX(a, b) (((a) > (b)) ? (a) : (b)) //redefined
-
+char *g_reconfig_file_path = NULL;
 bool g_interactive_debugger_enabled = false;
-
+char *g_gpgpusim_config_path = NULL;
+char *g_trace_config_path = NULL;
 tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
 
 /* Clock Domains */
@@ -358,6 +359,7 @@ void memory_config::reg_options(class OptionParser *opp) {
   // SST mode activate
   option_parser_register(opp, "-SST_mode", OPT_BOOL, &SST_mode, "SST mode",
                          "0");
+                     
   m_address_mapping.addrdec_setoption(opp);
 }
 
@@ -705,6 +707,7 @@ void shader_core_config::reg_options(class OptionParser *opp) {
                           &m_dynamic_reconfig_enabled,
                           "Enable dynamic reconfiguration of execution units and caches", 
                           "0");
+                          
 }
 
 void gpgpu_sim_config::reg_options(option_parser_t opp) {
@@ -821,7 +824,12 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
   option_parser_register(opp, "-gpgpu_phase_size", OPT_UINT32, &phase_size,
                          "Number of instructions per phase for monitoring behavior (default=10000)", "10000");
 
-
+    option_parser_register(opp, "-config", OPT_CSTR, &g_gpgpusim_config_path,
+        "Path to gpgpusim.config file", "");
+          option_parser_register(opp, "-reconfig", OPT_CSTR, &g_reconfig_file_path,
+        "Path to reconfiguration file", "");    
+        option_parser_register(opp, "-trace_config", OPT_CSTR, &g_trace_config_path,
+    "Path to trace.config file", "");
     }
 /////////////////////////////////////////////////////////////////////////////
 

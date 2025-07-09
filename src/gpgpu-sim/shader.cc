@@ -57,7 +57,8 @@
 #define PRIORITIZE_MSHR_OVER_WB 1
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
-
+std::string get_gpgpusim_config_path();
+std::string get_trace_config_path();
 mem_fetch *shader_core_mem_fetch_allocator::alloc(
     new_addr_type addr, mem_access_type type, unsigned size, bool wr,
     unsigned long long cycle, unsigned long long streamID) const {
@@ -348,16 +349,19 @@ void shader_core_ctx::check_exec_unit_reconfiguration() {
     // --- End: Check if reducing execution units ---
 
     // Copy config files into place
-    std::string cmd1 = "cp " + reconfig.gpgpusim_config_path + " /accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/gpgpusim.config";
-    std::string cmd2 = "cp " + reconfig.trace_config_path + " /accel-sim-framework/gpu-simulator/configs/tested-cfgs/SM7_QV100/trace.config";
-    int ret1 = system(cmd1.c_str());
-    int ret2 = system(cmd2.c_str());
-    if (ret1 != 0 || ret2 != 0) {
-        printf("ERROR: Failed to copy config files for reconfiguration!\n");
-        return;
-    }
-    printf("✓ Switched config files:\n  %s\n  %s\n", reconfig.gpgpusim_config_path.c_str(), reconfig.trace_config_path.c_str());
-
+    // std::string cmd1 = "cp " + reconfig.gpgpusim_config_path + " /accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/gpgpusim.config";
+    // std::string cmd2 = "cp " + reconfig.trace_config_path + " /accel-sim-framework/gpu-simulator/configs/tested-cfgs/SM7_QV100/trace.config";
+    std::string config_path = get_gpgpusim_config_path();
+std::string trace_path = get_trace_config_path();
+std::string cmd1 = "cp " + reconfig.gpgpusim_config_path + " " + config_path;
+std::string cmd2 = "cp " + reconfig.trace_config_path + " " + trace_path;
+int ret1 = system(cmd1.c_str());
+int ret2 = system(cmd2.c_str());
+if (ret1 != 0 || ret2 != 0) {
+    printf("ERROR: Failed to copy config files for reconfiguration!\n");
+    return;
+}
+printf("✓ Switched config files:\n  %s\n  %s\n", reconfig.gpgpusim_config_path.c_str(), reconfig.trace_config_path.c_str());
     if (reducing_units) {
         // Stall only dispatch on all cores
         if (!m_waiting_for_reconvergence) {
@@ -1375,7 +1379,30 @@ const active_mask_t &exec_shader_core_ctx::get_active_mask(
     unsigned warp_id, const warp_inst_t *pI) {
   return m_simt_stack[warp_id]->get_active_mask();
 }
-
+std::string get_gpgpusim_config_path() {
+    extern char *g_gpgpusim_config_path;
+    if (g_gpgpusim_config_path && strlen(g_gpgpusim_config_path) > 0) {
+        char abs_path[4096];
+        realpath(g_gpgpusim_config_path, abs_path);
+        printf("[INFO] Loading gpgpusim.config from: %s\n", abs_path);
+        return std::string(abs_path);
+    }
+    // fallback to default if not set
+    printf("[INFO] Loading gpgpusim.config from default path: /accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/gpgpusim.config\n");
+    return "/accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/gpgpusim.config";
+}
+std::string get_trace_config_path() {
+    extern char *g_trace_config_path;
+    if (g_trace_config_path && strlen(g_trace_config_path) > 0) {
+        char abs_path[4096];
+        realpath(g_trace_config_path, abs_path);
+        printf("[INFO] Loading trace.config from: %s\n", abs_path);
+        return std::string(abs_path);
+    }
+    // fallback to default if not set
+    printf("[INFO] Loading trace.config from default path: /accel-sim-framework/gpu-simulator/configs/tested-cfgs/SM7_QV100/trace.config\n");
+    return "/accel-sim-framework/gpu-simulator/configs/tested-cfgs/SM7_QV100/trace.config";
+}
 void shader_core_ctx::decode() {
 
   if (m_inst_fetch_buffer.m_valid) {
@@ -2286,6 +2313,7 @@ unsigned shader_core_ctx::translate_local_memaddr(
   }
   return num_accesses;
 }
+
 void shader_core_ctx::init_reconfigurations() {
     m_dynamic_reconfig_enabled = m_config->m_dynamic_reconfig_enabled;
     m_current_config = 0;
@@ -2295,10 +2323,20 @@ void shader_core_ctx::init_reconfigurations() {
 
     if (!m_dynamic_reconfig_enabled) return;
 
-    std::string config_path = "/accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/reconfig.config";
+    std::string config_path;
+    extern char *g_reconfig_file_path;
+    if (g_reconfig_file_path && strlen(g_reconfig_file_path) > 0) {
+        char abs_path[4096];
+        realpath(g_reconfig_file_path, abs_path);
+        printf("[INFO] Loading reconfig.txt from: %s\n", abs_path);
+        config_path = abs_path;
+    } else {
+        printf("[INFO] Loading reconfig.txt from default path: /accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/reconfig.config\n");
+        config_path = "/accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/reconfig.config";
+    }
     std::ifstream config_file(config_path);
     if (!config_file.is_open()) {
-        printf("Warning: reconfig.config not found, disabling reconfiguration\n");
+        printf("Warning: reconfig.config not found at %s, disabling reconfiguration\n", config_path.c_str());
         m_dynamic_reconfig_enabled = false;
         return;
     }
@@ -2315,6 +2353,15 @@ while (std::getline(config_file, line)) {
         reconfig.gpgpusim_config_path = gpgpusim_config_path;
         reconfig.trace_config_path = trace_config_path;
         m_reconfig_points.push_back(reconfig);
+        char abs_gpgpu[4096], abs_trace[4096];
+            if (realpath(gpgpusim_config_path.c_str(), abs_gpgpu))
+                printf("[INFO] (reconfig.txt) gpgpusim.config: %s\n", abs_gpgpu);
+            else
+                printf("[WARN] (reconfig.txt) gpgpusim.config: %s (could not resolve absolute path)\n", gpgpusim_config_path.c_str());
+            if (realpath(trace_config_path.c_str(), abs_trace))
+                printf("[INFO] (reconfig.txt) trace.config: %s\n", abs_trace);
+            else
+                printf("[WARN] (reconfig.txt) trace.config: %s (could not resolve absolute path)\n", trace_config_path.c_str());
     }
 }
     config_file.close();
