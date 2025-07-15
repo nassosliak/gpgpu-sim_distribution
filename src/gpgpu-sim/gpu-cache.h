@@ -567,6 +567,7 @@ class cache_config {
     m_is_streaming = false;
     m_wr_percent = 0;
   }
+  virtual ~cache_config() {}
   void init(char *config, FuncCache status) {
     cache_status = status;
     assert(config);
