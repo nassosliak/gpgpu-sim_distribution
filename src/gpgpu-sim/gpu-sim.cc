@@ -2035,6 +2035,13 @@ void gpgpu_sim::cycle() {
 
     if (clock_mask & CORE) {
         unsigned long long phase_insn = gpu_tot_sim_insn + gpu_sim_insn - m_phase_start_insn;
+        if (m_shader_config->m_dynamic_reconfig_enabled) {
+    simt_core_cluster* cluster0 = m_cluster[0];
+    shader_core_ctx* core0 = cluster0->get_core(0);
+    if (core0) {
+        core0->check_exec_unit_reconfiguration();
+    }
+}
     if (phase_insn >= m_config.phase_size) {
         // Calculate cycles for this phase
         unsigned long long phase_cycle = gpu_tot_sim_cycle + gpu_sim_cycle - m_phase_start_cycle;

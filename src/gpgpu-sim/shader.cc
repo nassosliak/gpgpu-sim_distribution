@@ -121,39 +121,68 @@ bool opndcoll_rfu_t::all_cu_free() const {
 }
 
 
+// bool shader_core_ctx::execution_pipeline_drained() const {
+//     for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
+//         if (!m_pipeline_reg[i].empty()) {
+//             printf("Core %u: Pipeline reg %zu not empty\n", m_sid, i);
+//             return false;
+//         }
+//     }
+//     for (size_t i = 0; i < m_fu.size(); ++i) {
+//         if (m_fu[i] && m_fu[i]->is_occupied()) {
+//             printf("Core %u: FU %zu (%s) is occupied\n", m_sid, i, m_fu[i]->get_name());
+//             return false;
+//         }
+//     }
+//     for (unsigned i = 0; i < m_config->max_warps_per_shader; ++i) {
+//         if (m_scoreboard->pendingWrites(i)) {
+//             printf("Core %u: Scoreboard has pending writes for warp %u\n", m_sid, i);
+//             return false;
+//         }
+//     }
+//     if (m_ldst_unit) {
+//         if (!m_ldst_unit->response_fifo_empty()) {
+//             printf("Core %u: LDST response FIFO not empty\n", m_sid);
+//             return false;
+//         }
+//         if (!m_ldst_unit->pending_writes_empty()) {
+//             printf("Core %u: LDST pending writes not empty\n", m_sid);
+//             return false;
+//         }
+//     }
+//     return true;
+// }
+
 bool shader_core_ctx::execution_pipeline_drained() const {
+    // 1. Check all pipeline registers (except those for MEM/ldst_unit)
     for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
+        // Optionally skip MEM pipeline reg if not reconfiguring MEM
+        if (i == OC_EX_MEM || i == ID_OC_MEM) continue;
         if (!m_pipeline_reg[i].empty()) {
             printf("Core %u: Pipeline reg %zu not empty\n", m_sid, i);
             return false;
         }
     }
+    // 2. Check all FUs except ldst_unit
     for (size_t i = 0; i < m_fu.size(); ++i) {
+        if (m_fu[i] == m_ldst_unit) continue;
         if (m_fu[i] && m_fu[i]->is_occupied()) {
             printf("Core %u: FU %zu (%s) is occupied\n", m_sid, i, m_fu[i]->get_name());
             return false;
         }
     }
+    // 3. Check scoreboard for pending writes (optional)
     for (unsigned i = 0; i < m_config->max_warps_per_shader; ++i) {
         if (m_scoreboard->pendingWrites(i)) {
             printf("Core %u: Scoreboard has pending writes for warp %u\n", m_sid, i);
             return false;
         }
     }
-    if (m_ldst_unit) {
-        if (!m_ldst_unit->response_fifo_empty()) {
-            printf("Core %u: LDST response FIFO not empty\n", m_sid);
-            return false;
-        }
-        if (!m_ldst_unit->pending_writes_empty()) {
-            printf("Core %u: LDST pending writes not empty\n", m_sid);
-            return false;
-        }
-    }
+    // 4. Optionally, check ldst_unit response FIFO is empty (if you want to be strict)
+    // if (!m_ldst_unit->response_fifo_empty()) return false;
+
     return true;
 }
-
-
 void shader_core_ctx::perform_reconfiguration(const ExecUnitReconfig& reconfig) {
 
     // Update the new configuration parameters
@@ -228,56 +257,49 @@ void shader_core_ctx::add_execution_units_if_increased(const ExecUnitReconfig& r
             m_issue_port.push_back(OC_EX_SP);
         }
     }
-    // Repeat for other unit types as needed...
-    // SFU, DP, INT, TENSOR, etc.
-    //SFU
-    // if (reconfig.unit_type == "SFU" && reconfig.num_units > m_config->gpgpu_num_sfu_units) {
-    //     increased = true;
-    //     unsigned old_units = m_config->gpgpu_num_sfu_units;
-    //     new_config->gpgpu_num_sfu_units = reconfig.num_units;
-    //     new_config->max_sfu_latency = reconfig.latency;
-    //     for (unsigned k = old_units; k < reconfig.num_units; k++) {
-    //         m_fu.push_back(new sfu_unit(&m_pipeline_reg[EX_WB], new_config, this, k));
-    //         m_dispatch_port.push_back(ID_OC_SFU);
-    //         m_issue_port.push_back(OC_EX_SFU);
-    //     }
-    // }
-    // DP
-    // if (reconfig.unit_type == "DP" && reconfig.num_units > m_config->gpgpu_num_dp_units) {
-    //     increased = true;
-    //     unsigned old_units = m_config->gpgpu_num_dp_units;
-    //     new_config->gpgpu_num_dp_units = reconfig.num_units;
-    //     new_config->max_dp_latency = reconfig.latency;
-    //     for (unsigned k = old_units; k < reconfig.num_units; k++) {
-    //         m_fu.push_back(new dp_unit(&m_pipeline_reg[EX_WB], new_config, this, k));
-    //         m_dispatch_port.push_back(ID_OC_DP);
-    //         m_issue_port.push_back(OC_EX_DP);
-    //     }
-    // }
-    // // INT
-    // if (reconfig.unit_type == "INT" && reconfig.num_units > m_config->gpgpu_num_int_units) {
-    //     increased = true;
-    //     unsigned old_units = m_config->gpgpu_num_int_units;
-    //     new_config->gpgpu_num_int_units = reconfig.num_units;
-    //     new_config->max_int_latency = reconfig.latency;
-    //     for (unsigned k = old_units; k < reconfig.num_units; k++) {
-    //         m_fu.push_back(new int_unit(&m_pipeline_reg[EX_WB], new_config, this, k));
-    //         m_dispatch_port.push_back(ID_OC_INT);
-    //         m_issue_port.push_back(OC_EX_INT);
-    //     }
-    // }
-    // // TENSOR
-    // if (reconfig.unit_type == "TENSOR" && reconfig.num_units > m_config->gpgpu_num_tensor_core_units) {
-    //     increased = true;
-    //     unsigned old_units = m_config->gpgpu_num_tensor_core_units;
-    //     new_config->gpgpu_num_tensor_core_units = reconfig.num_units;
-    //     new_config->max_tensor_core_latency = reconfig.latency;
-    //     for (unsigned k = old_units; k < reconfig.num_units; k++) {
-    //         m_fu.push_back(new tensor_core_unit(&m_pipeline_reg[EX_WB], new_config, this, k));
-    //         m_dispatch_port.push_back(ID_OC_TENSOR);
-    //         m_issue_port.push_back(OC_EX_TENSOR);
-    //     }
-    // }
+    
+    else if (reconfig.unit_type == "SFU" && reconfig.num_units > m_config->gpgpu_num_sfu_units) {
+        increased = true;
+        unsigned old_units = m_config->gpgpu_num_sfu_units;
+        new_config->gpgpu_num_sfu_units = reconfig.num_units;
+        new_config->max_sfu_latency = reconfig.latency;
+        for (unsigned k = old_units; k < reconfig.num_units; k++) {
+            m_fu.push_back(new sfu(&m_pipeline_reg[EX_WB], new_config, this, k));
+            m_dispatch_port.push_back(ID_OC_SFU);
+            m_issue_port.push_back(OC_EX_SFU);
+        }
+    } else if (reconfig.unit_type == "DP" && reconfig.num_units > m_config->gpgpu_num_dp_units) {
+        increased = true;
+        unsigned old_units = m_config->gpgpu_num_dp_units;
+        new_config->gpgpu_num_dp_units = reconfig.num_units;
+        new_config->max_dp_latency = reconfig.latency;
+        for (unsigned k = old_units; k < reconfig.num_units; k++) {
+            m_fu.push_back(new dp_unit(&m_pipeline_reg[EX_WB], new_config, this, k));
+            m_dispatch_port.push_back(ID_OC_DP);
+            m_issue_port.push_back(OC_EX_DP);
+        }
+    } else if (reconfig.unit_type == "INT" && reconfig.num_units > m_config->gpgpu_num_int_units) {
+        increased = true;
+        unsigned old_units = m_config->gpgpu_num_int_units;
+        new_config->gpgpu_num_int_units = reconfig.num_units;
+        new_config->max_int_latency = reconfig.latency;
+        for (unsigned k = old_units; k < reconfig.num_units; k++) {
+            m_fu.push_back(new int_unit(&m_pipeline_reg[EX_WB], new_config, this, k));
+            m_dispatch_port.push_back(ID_OC_INT);
+            m_issue_port.push_back(OC_EX_INT);
+        }
+    } else if ((reconfig.unit_type == "TENSOR" || reconfig.unit_type == "TENSOR_CORE") &&
+               reconfig.num_units > m_config->gpgpu_num_tensor_core_units) {
+        increased = true;
+        unsigned old_units = m_config->gpgpu_num_tensor_core_units;
+        new_config->gpgpu_num_tensor_core_units = reconfig.num_units;
+        new_config->max_tensor_core_latency = reconfig.latency;
+        for (unsigned k = old_units; k < reconfig.num_units; k++) {
+            m_fu.push_back(new tensor_core(&m_pipeline_reg[EX_WB], new_config, this, k));
+            m_dispatch_port.push_back(ID_OC_TENSOR_CORE);
+            m_issue_port.push_back(OC_EX_TENSOR_CORE);
+        }
+    }
     if (increased) {
         m_config = new_config;
         printf("Core %u: Increased %s units to %u (latency: %u)\n",
@@ -348,6 +370,7 @@ void shader_core_ctx::check_exec_unit_reconfiguration() {
         m_reconfig_points[m_current_config].latency = m_config->max_tensor_core_latency;
     } else {
         // No change detected, skip
+        m_current_config++;
         return;
     }
     // Check if any unit is being reduced or increased
@@ -4276,9 +4299,9 @@ void shader_core_ctx::cycle() {
     }
     
     // Check for reconfiguration (only core 0 makes decisions)
-    if (m_sid == 0) {
-        check_exec_unit_reconfiguration();
-    }
+    // if (m_sid == 0) {
+    //     check_exec_unit_reconfiguration();
+    // }
     
     if (m_dispatch_stall_for_reconfig) {
         // Only advance pipeline, do not inject new instructions
