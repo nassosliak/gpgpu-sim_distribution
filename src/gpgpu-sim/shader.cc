@@ -4308,6 +4308,9 @@ void shader_core_ctx::cycle() {
         writeback();
         execute();
         read_operands();
+        issue();
+        decode();
+        fetch();
         // Do NOT call issue(), decode(), or fetch()
     } else {
         writeback();
