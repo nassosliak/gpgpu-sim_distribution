@@ -72,7 +72,7 @@ setup
 __pycache__/
 
 #makedepend
-Makefile.makedepend
-*.makedepend
-makedepend*
-*.makedepend.bak
+# Makefile.makedepend
+# *.makedepend
+# makedepend*
+# *.makedepend.bak

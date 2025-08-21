@@ -1420,6 +1420,9 @@ class ldst_unit : public pipelined_simd_unit {
    */
    bool pending_writes_empty() const;
    bool is_all_caches_idle() const;
+   bool pipeline_empty() const;
+   bool dispatch_reg_empty() const;
+   bool wb_pending_empty() const;
 bool response_fifo_empty() const;
 void set_L1C(read_only_cache* l1c) { m_L1C = l1c; }
     void set_L1T(tex_cache* l1t) { m_L1T = l1t; }

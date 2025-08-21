@@ -120,50 +120,71 @@ bool opndcoll_rfu_t::all_cu_free() const {
     return true;
 }
 
+bool ldst_unit::pipeline_empty() const {
+    if (!m_dispatch_reg->empty()) return false;
+    for (unsigned stage = 0; (stage + 1) < m_pipeline_depth; ++stage) {
+        if (!m_pipeline_reg[stage]->empty()) {
+            return false;
+        }
+    }
+    return true;
+}
+bool ldst_unit::dispatch_reg_empty() const { return m_dispatch_reg->empty(); }
+bool ldst_unit::wb_pending_empty() const { return m_next_wb.empty(); }
 
-// bool shader_core_ctx::execution_pipeline_drained() const {
+bool shader_core_ctx::execution_pipeline_drained() const {
+    // 1. Check all pipeline registers (except those for MEM/ldst_unit)
 //     for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
+//         // Optionally skip MEM pipeline reg if not reconfiguring MEM
+//         if (i == OC_EX_MEM || i == ID_OC_MEM) continue;
 //         if (!m_pipeline_reg[i].empty()) {
 //             printf("Core %u: Pipeline reg %zu not empty\n", m_sid, i);
 //             return false;
 //         }
 //     }
+//     if (!m_pipeline_reg[EX_WB].empty()) {
+//         printf("Core %u: EX/WB not empty\n", m_sid);
+//         return false;
+//     }
+//     // 2. Check all FUs except ldst_unit
 //     for (size_t i = 0; i < m_fu.size(); ++i) {
+//         if (m_fu[i] == m_ldst_unit) continue;
 //         if (m_fu[i] && m_fu[i]->is_occupied()) {
 //             printf("Core %u: FU %zu (%s) is occupied\n", m_sid, i, m_fu[i]->get_name());
 //             return false;
 //         }
 //     }
+//     // 3. Check scoreboard for pending writes (optional)
 //     for (unsigned i = 0; i < m_config->max_warps_per_shader; ++i) {
 //         if (m_scoreboard->pendingWrites(i)) {
 //             printf("Core %u: Scoreboard has pending writes for warp %u\n", m_sid, i);
 //             return false;
 //         }
 //     }
+//     // 4. Optionally, check ldst_unit response FIFO is empty (if you want to be strict)
+// if (!m_operand_collector.all_cu_free()) {
+//         printf("Core %u: Operand collector not idle\n", m_sid);
+//         return false;
+//     }
 //     if (m_ldst_unit) {
-//         if (!m_ldst_unit->response_fifo_empty()) {
-//             printf("Core %u: LDST response FIFO not empty\n", m_sid);
-//             return false;
-//         }
-//         if (!m_ldst_unit->pending_writes_empty()) {
-//             printf("Core %u: LDST pending writes not empty\n", m_sid);
-//             return false;
-//         }
+//         if (!m_ldst_unit->response_fifo_empty()) return false;
+//         if (!m_ldst_unit->pending_writes_empty()) return false;
 //     }
 //     return true;
-// }
 
-bool shader_core_ctx::execution_pipeline_drained() const {
-    // 1. Check all pipeline registers (except those for MEM/ldst_unit)
-    for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
-        // Optionally skip MEM pipeline reg if not reconfiguring MEM
+for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
         if (i == OC_EX_MEM || i == ID_OC_MEM) continue;
         if (!m_pipeline_reg[i].empty()) {
             printf("Core %u: Pipeline reg %zu not empty\n", m_sid, i);
             return false;
         }
     }
-    // 2. Check all FUs except ldst_unit
+    // 2. EX/WB must be empty
+    if (!m_pipeline_reg[EX_WB].empty()) {
+        printf("Core %u: EX/WB not empty\n", m_sid);
+        return false;
+    }
+    // 3. All non-LDST FUs idle
     for (size_t i = 0; i < m_fu.size(); ++i) {
         if (m_fu[i] == m_ldst_unit) continue;
         if (m_fu[i] && m_fu[i]->is_occupied()) {
@@ -171,16 +192,26 @@ bool shader_core_ctx::execution_pipeline_drained() const {
             return false;
         }
     }
-    // 3. Check scoreboard for pending writes (optional)
+    // 4. Scoreboard must be clean
     for (unsigned i = 0; i < m_config->max_warps_per_shader; ++i) {
         if (m_scoreboard->pendingWrites(i)) {
             printf("Core %u: Scoreboard has pending writes for warp %u\n", m_sid, i);
             return false;
         }
     }
-    // 4. Optionally, check ldst_unit response FIFO is empty (if you want to be strict)
-    // if (!m_ldst_unit->response_fifo_empty()) return false;
-
+    // 5. Operand collector must be idle
+    if (!m_operand_collector.all_cu_free()) {
+        printf("Core %u: Operand collector not idle\n", m_sid);
+        return false;
+    }
+    // 6. LD/ST must be fully idle (internal pipeline + regs + fifos)
+    if (m_ldst_unit) {
+        if (!m_ldst_unit->dispatch_reg_empty()) return false;
+        if (!m_ldst_unit->pipeline_empty()) return false;
+        if (!m_ldst_unit->wb_pending_empty()) return false;
+        if (!m_ldst_unit->response_fifo_empty()) return false;
+        if (!m_ldst_unit->pending_writes_empty()) return false;
+    }
     return true;
 }
 void shader_core_ctx::perform_reconfiguration(const ExecUnitReconfig& reconfig) {
@@ -442,6 +473,8 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
                     shader_core_ctx* core = cluster->get_core(core_id);
                     if (core) {
                         core->m_dispatch_stall_for_reconfig = true;
+                        core->m_reconfig_stall_active = true;
+                        core->m_reconfig_dispatch_stall = true;
                     }
                 }
             }
@@ -469,16 +502,43 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
             }
         }
 
+        // if (!all_cores_drained) {
+        //     if (m_dispatch_stall_cycles % 50 == 0) {
+        //         printf("⏳ Waiting for pipeline drain... Cycle %u, Drained cores: %u/%u\n",
+        //                m_dispatch_stall_cycles, drained_cores, total_cores);
+        //     }
+        //     // Optional: add a timeout to avoid infinite wait
+        //     if (m_dispatch_stall_cycles > 1000) {
+        //         printf("WARNING: Pipeline drain timeout, forcing reconfiguration\n");
+        //         all_cores_drained = true;
+        //     } else {
+        //         return;
+        //     }
+        // }
+
         m_dispatch_stall_cycles++;
         if (!all_cores_drained) {
             if (m_dispatch_stall_cycles % 50 == 0) {
                 printf("⏳ Waiting for pipeline drain... Cycle %u, Drained cores: %u/%u\n",
                        m_dispatch_stall_cycles, drained_cores, total_cores);
             }
-            // Optional: add a timeout to avoid infinite wait
-            if (m_dispatch_stall_cycles > 1000) {
-                printf("WARNING: Pipeline drain timeout, forcing reconfiguration\n");
-                all_cores_drained = true;
+            // Do not force reconfiguration; skip this reconfig point on timeout
+            if (m_dispatch_stall_cycles > 20000) {
+                printf("WARNING: Pipeline drain timeout, canceling this reconfiguration to avoid deadlock\n");
+                for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
+                    simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
+                    for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
+                        shader_core_ctx* core = cluster->get_core(core_id);
+                        if (core) {
+                            core->m_reconfig_dispatch_stall = false;
+                            core->m_reconfig_stall_active = false;
+                            core->m_dispatch_stall_for_reconfig = false;
+                        }
+                    }
+                }
+                m_waiting_for_reconvergence = false;
+                m_current_config++; // skip this point
+                return;
             } else {
                 return;
             }
@@ -553,7 +613,10 @@ void shader_core_ctx::create_function_units_and_pipeline_regs() {
     m_dispatch_port.clear();
     m_issue_port.clear();
     m_specilized_dispatch_reg.clear();
-
+    for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
+        m_specilized_dispatch_reg.push_back(
+            &m_pipeline_reg[m_config->m_specialized_unit[j].ID_OC_SPEC_ID]);
+    }
     // 2. Delete old result buses
     for (auto bus : m_result_bus) {
         delete bus;
@@ -608,10 +671,11 @@ void shader_core_ctx::create_function_units_and_pipeline_regs() {
         }
     }
     // Add ldst_unit (if needed)
+    if (m_ldst_unit) m_ldst_unit->reset();
     m_fu.push_back(m_ldst_unit);
     m_dispatch_port.push_back(ID_OC_MEM);
     m_issue_port.push_back(OC_EX_MEM);
-
+    
     // 5. Re-create result buses
     num_result_bus = m_config->pipe_widths[EX_WB];
     for (unsigned i = 0; i < num_result_bus; i++) {
@@ -2449,8 +2513,12 @@ void shader_core_ctx::execute() {
   }
 }
 bool ldst_unit::pending_writes_empty() const {
-    for (const auto& w : m_pending_writes) {
-        if (!w.second.empty()) return false;
+    for (const auto &w : m_pending_writes) {
+        for (const auto &regcnt : w.second) {
+            if (regcnt.second > 0) {
+                return false;
+            }
+        }
     }
     return true;
 }
@@ -4299,19 +4367,21 @@ void shader_core_ctx::cycle() {
     }
     
     // Check for reconfiguration (only core 0 makes decisions)
-    // if (m_sid == 0) {
-    //     check_exec_unit_reconfiguration();
-    // }
+    if (m_sid == 0) {
+         check_exec_unit_reconfiguration();
+    }
     
     if (m_dispatch_stall_for_reconfig) {
         // Only advance pipeline, do not inject new instructions
         writeback();
         execute();
         read_operands();
+        // if (m_L1I) m_L1I->cycle();
         issue();
         decode();
         fetch();
         // Do NOT call issue(), decode(), or fetch()
+        // return;
     } else {
         writeback();
         execute();
@@ -5097,7 +5167,8 @@ if (m_rfu->shader_core()->get_reconfig_dispatch_stall()) {
   m_free = true;
   m_output_register = NULL;
   for (unsigned i = 0; i < MAX_REG_OPERANDS * 2; i++) m_src_op[i].reset();
-}
+  }
+
 
 void exec_simt_core_cluster::create_shader_core_ctx() {
   m_core = new shader_core_ctx *[m_config->n_simt_cores_per_cluster];

@@ -63,7 +63,7 @@ const char *cache_fail_status_str(enum cache_reservation_fail_reason status) {
 
   return static_cache_reservation_fail_reason_str[status];
 }
-
+cache_config::~cache_config() {}
 unsigned l1d_cache_config::set_bank(new_addr_type addr) const {
   // For sector cache, we select one sector per bank (sector interleaving)
   // This is what was found in Volta (one sector per bank, sector interleaving)
