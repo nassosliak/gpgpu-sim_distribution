@@ -82,7 +82,7 @@ struct ExecUnitReconfig {
     std::string unit_type;
     unsigned latency;
     unsigned num_units;
-
+    unsigned num_schedulers;
     // Cache characteristics
     unsigned l1d_size;
     unsigned l1d_assoc;
@@ -443,7 +443,7 @@ class scheduler_unit {  // this can be copied freely, so can be used in std
   virtual void done_adding_supervised_warps() {
     m_last_supervised_issued = m_supervised_warps.end();
   }
-
+  virtual bool has_active_warps() const;
   // The core scheduler cycle method is meant to be common between
   // all the derived schedulers.  The scheduler's behaviour can be
   // modified by changing the contents of the m_next_cycle_prioritized_warps
@@ -690,6 +690,8 @@ class opndcoll_rfu_t {  // operand collector based register file unit
     m_in_ports.clear();
     m_initialized = false;
   }
+  
+  void reset_state();
   bool all_cu_free() const;
   void add_cu_set(unsigned cu_set, unsigned num_cu, unsigned num_dispatch);
   typedef std::vector<register_set *> port_vector_t;
@@ -879,6 +881,7 @@ class opndcoll_rfu_t {  // operand collector based register file unit
       _request = NULL;
       m_last_cu = 0;
     }
+    void reset();
     void init(unsigned num_cu, unsigned num_banks) {
       assert(num_cu > 0);
       assert(num_banks > 0);
@@ -989,6 +992,21 @@ class opndcoll_rfu_t {  // operand collector based register file unit
     }
     // accessors
     bool ready() const;
+    void reset_src_operands() {
+        for (unsigned op = 0; op < MAX_REG_OPERANDS * 2; op++) {
+            m_src_op[op].reset();
+        }
+    }
+    void reset() {
+        m_free = true;
+        m_not_ready.reset();
+        m_output_register = NULL;
+        if (m_warp) {
+            m_warp->clear();
+        }
+        // Reset source operands
+        reset_src_operands();
+    }
     const op_t *get_operands() const { return m_src_op; }
     void dump(FILE *fp, const shader_core_ctx *shader) const;
 
@@ -2174,6 +2192,11 @@ class shader_core_ctx : public core_t {
   // used by simt_core_cluster:
   // modifiers
   void cycle();
+  bool is_dispatch_stalled_for_reconfig() const;
+  void destroy_schedulers();
+void create_schedulers_with_count(unsigned num_schedulers);
+bool schedulers_pipeline_drained() const;
+void reset_scheduler_state();
 unsigned long long m_reconfig_start_cycle = 0;
 unsigned long long m_reconfig_end_cycle = 0;
 void recreate_caches_after_reconfig(const shader_core_config& new_config);
@@ -2711,7 +2734,6 @@ l1_cache* m_L1D;
   static unsigned long long s_global_total_instructions;
   unsigned m_pipeline_depth;
   static const unsigned MAX_RECONFIG_STALL_CYCLES = 10000;
-  bool m_dispatch_stall_for_reconfig;
     unsigned m_dispatch_stall_cycles;
     static const unsigned DISPATCH_DRAIN_CYCLES = 50; // Reduced from 200
   std::bitset<MAX_THREAD_PER_SM> m_occupied_hwtid;
