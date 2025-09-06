@@ -1438,6 +1438,7 @@ class ldst_unit : public pipelined_simd_unit {
    */
    bool pending_writes_empty() const;
    bool is_all_caches_idle() const;
+   void force_drain();
    bool pipeline_empty() const;
    bool dispatch_reg_empty() const;
    bool wb_pending_empty() const;
@@ -2192,6 +2193,8 @@ class shader_core_ctx : public core_t {
   // used by simt_core_cluster:
   // modifiers
   void cycle();
+  bool memory_unit_drained() const;
+  void prepare_for_reconfiguration();
   bool is_dispatch_stalled_for_reconfig() const;
   void destroy_schedulers();
 void create_schedulers_with_count(unsigned num_schedulers);
