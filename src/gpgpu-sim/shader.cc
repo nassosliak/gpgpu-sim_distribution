@@ -145,12 +145,12 @@ bool shader_core_ctx::execution_pipeline_drained() const {
             return false;
         }
     }
-    // for (unsigned i = 0; i < m_config->max_warps_per_shader; ++i) {
-    //     if (m_scoreboard->pendingWrites(i)) {
-    //         printf("Core %u: Scoreboard has pending writes for warp %u\n", m_sid, i);
-    //         return false;
-    //     }
-    // }
+    for (unsigned i = 0; i < m_config->max_warps_per_shader; ++i) {
+        if (m_scoreboard->pendingWrites(i)) {
+            printf("Core %u: Scoreboard has pending writes for warp %u\n", m_sid, i);
+            return false;
+        }
+    }
     if (m_ldst_unit) {
         // if (!m_ldst_unit->response_fifo_empty()) {
         //     printf("Core %u: LDST response FIFO not empty\n", m_sid);
@@ -163,6 +163,7 @@ bool shader_core_ctx::execution_pipeline_drained() const {
     }
     return true;
 }
+
 // bool shader_core_ctx::execution_pipeline_drained() const {
 //     // 1. Check ALL pipeline registers except memory-related ones
 //     for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
@@ -280,18 +281,7 @@ void opndcoll_rfu_t::reset_state() {
     m_arbiter.reset();
 }
 void shader_core_ctx::perform_reconfiguration(const ExecUnitReconfig& reconfig) {
-// for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
-//         if (i == OC_EX_MEM || i == ID_OC_MEM) continue; // Keep memory stages
-//         m_pipeline_reg[i].clear();
-//     }
-    
-//     // 2. Clear result buses
-//     for (unsigned i = 0; i < num_result_bus; i++) {
-//         m_result_bus[i]->reset();
-//     }
-//         // 3. Reset operand collector
-//     m_operand_collector.reset_state();
-    // Update the new configuration parameters
+    // Update config based on reconfiguration request
     if (reconfig.unit_type == "SP") {
     m_config->gpgpu_num_sp_units = reconfig.num_units;
     m_config->max_sp_latency = reconfig.latency;
@@ -748,23 +738,24 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
                        m_dispatch_stall_cycles, drained_cores, total_cores);
                        
             }
-            return;
+            // return;
 
             // Do not force reconfiguration; skip this reconfig point on timeout
-        //     if (m_dispatch_stall_cycles > 100) {
-        //         printf("WARNING: Pipeline drain timeout, exiting...\n");
-        //         // m_ldst_unit->force_drain();
-        // //         for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
-        // //     simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
-        // //     for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
-        // //         shader_core_ctx* core = cluster->get_core(core_id);
-        // //         if (core) {
-        // //             core->m_reconfig_dispatch_stall = false;
-        // //         }
-        // //     }
-        // // }
-        //         // exit(1);
-        //     } else {
+            if (m_dispatch_stall_cycles > 200) {
+                printf("WARNING: Pipeline drain timeout, exiting...\n");
+                // m_ldst_unit->force_drain();
+                for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
+            simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
+            for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
+                shader_core_ctx* core = cluster->get_core(core_id);
+                if (core) {
+                    core->m_reconfig_dispatch_stall = false;
+                }
+            }
+        }
+                exit(1);
+            } 
+            // else {
         //         return;
         //     }
         }
@@ -817,7 +808,71 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
         printf("========================================================\n\n");
     }
   }
+void ldst_unit::log_memory_state(unsigned cycle) const {
+    printf("CYCLE %u CORE %u LDST STATE:\n", cycle, m_sid);
+    printf("  Response FIFO: %zu/%u\n", m_response_fifo.size(), 
+           m_config->ldst_unit_response_queue_size);
+    printf("  Pending writes count: %zu\n", m_pending_writes.size());
+    printf("  Pipeline empty: %s\n", pipeline_empty() ? "YES" : "NO");
+    printf("  Dispatch reg empty: %s\n", dispatch_reg_empty() ? "YES" : "NO");
+    printf("  WB pending empty: %s\n", wb_pending_empty() ? "YES" : "NO");
+    
+    // Log pending writes per warp
+    for (auto& warp_writes : m_pending_writes) {
+        if (!warp_writes.second.empty()) {
+            printf("    Warp %u pending writes: ", warp_writes.first);
+            for (auto& reg_write : warp_writes.second) {
+                printf("reg%u:%u ", reg_write.first, reg_write.second);
+            }
+            printf("\n");
+        }
+    }
+    
+    // Log LDGSTS state
+    for (auto& warp_ldgsts : m_pending_ldgsts) {
+        if (!warp_ldgsts.second.empty()) {
+            printf("    Warp %u pending LDGSTS: %zu entries\n", 
+                   warp_ldgsts.first, warp_ldgsts.second.size());
+        }
+    }
+}
 
+void shader_core_ctx::log_pipeline_drain_state(unsigned cycle) const {
+    printf("CYCLE %u CORE %u DRAIN CHECK:\n", cycle, m_sid);
+    
+    // Check each pipeline stage
+    for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
+        if (!m_pipeline_reg[i].empty()) {
+            printf("  Pipeline stage %zu (%s): %u instructions\n", 
+                   i, (i < N_PIPELINE_STAGES) ? pipeline_stage_name_decode[i] : "SPECIALIZED",
+                   m_pipeline_reg[i].get_size());
+        }
+    }
+    
+    // Check functional units
+    for (size_t i = 0; i < m_fu.size(); ++i) {
+        if (m_fu[i] == m_ldst_unit) continue;
+        if (m_fu[i] && m_fu[i]->is_occupied()) {
+            printf("  FU %zu (%s): OCCUPIED\n", i, m_fu[i]->get_name());
+        }
+    }
+    
+    // Check scoreboard
+    unsigned total_pending = 0;
+    for (unsigned i = 0; i < m_config->max_warps_per_shader; ++i) {
+        if (m_scoreboard->pendingWrites(i)) {
+            total_pending++;
+        }
+    }
+    if (total_pending > 0) {
+        printf("  Scoreboard: %u warps with pending writes\n", total_pending);
+    }
+    
+    // Memory unit specific logging
+    if (m_ldst_unit) {
+        m_ldst_unit->log_memory_state(cycle);
+    }
+}
 void shader_core_ctx::create_function_units_and_pipeline_regs() {
     
   m_num_function_units =
@@ -843,10 +898,10 @@ void shader_core_ctx::create_function_units_and_pipeline_regs() {
     //         &m_pipeline_reg[m_config->m_specialized_unit[j].ID_OC_SPEC_ID]);
     // }
     // 2. Delete old result buses
-    for (auto bus : m_result_bus) {
-        delete bus;
-    }
-    m_result_bus.clear();
+    // for (auto bus : m_result_bus) {
+    //     delete bus;
+    // }
+    // m_result_bus.clear();
 
     // 3. Clear pipeline registers
     for (auto& reg : m_pipeline_reg) {
@@ -896,22 +951,22 @@ void shader_core_ctx::create_function_units_and_pipeline_regs() {
         }
     }
     // Add ldst_unit (if needed)
-    if (m_ldst_unit) m_ldst_unit->reset();
+    // if (m_ldst_unit) m_ldst_unit->reset();
     m_fu.push_back(m_ldst_unit);
     m_dispatch_port.push_back(ID_OC_MEM);
     m_issue_port.push_back(OC_EX_MEM);
     
     // 5. Re-create result buses
-    num_result_bus = m_config->pipe_widths[EX_WB];
-    for (unsigned i = 0; i < num_result_bus; i++) {
-        m_result_bus.push_back(new std::bitset<MAX_ALU_LATENCY>());
-    }
-    if (!(m_num_function_units == m_fu.size() &&
-          m_fu.size() == m_dispatch_port.size() &&
-          m_fu.size() == m_issue_port.size())) {
-        printf("DEBUG: m_num_function_units=%u m_fu.size()=%zu m_dispatch_port.size()=%zu m_issue_port.size()=%zu\n",
-            m_num_function_units, m_fu.size(), m_dispatch_port.size(), m_issue_port.size());
-    }
+    // num_result_bus = m_config->pipe_widths[EX_WB];
+    // for (unsigned i = 0; i < num_result_bus; i++) {
+    //     m_result_bus.push_back(new std::bitset<MAX_ALU_LATENCY>());
+    // }
+    // if (!(m_num_function_units == m_fu.size() &&
+    //       m_fu.size() == m_dispatch_port.size() &&
+    //       m_fu.size() == m_issue_port.size())) {
+    //     printf("DEBUG: m_num_function_units=%u m_fu.size()=%zu m_dispatch_port.size()=%zu m_issue_port.size()=%zu\n",
+    //         m_num_function_units, m_fu.size(), m_dispatch_port.size(), m_issue_port.size());
+    // }
     // 6. Assert sizes match
     assert(m_num_function_units == m_fu.size() &&
            m_fu.size() == m_dispatch_port.size() &&
@@ -4639,8 +4694,8 @@ void shader_core_ctx::cycle() {
         execute();
         read_operands();
         issue();
-        decode();
-        fetch();
+        // decode();
+        // fetch();
     } else {
         writeback();
         execute();
