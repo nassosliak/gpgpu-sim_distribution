@@ -74,7 +74,7 @@
 #define WRITE_MASK_SIZE 8
 
 class gpgpu_context;
-
+// ...existing code...
 struct ExecUnitReconfig {
     unsigned long long instr_id;
     std::string gpgpusim_config_path;
@@ -114,7 +114,7 @@ struct ExecUnitReconfig {
           l1i_size(0), l1i_assoc(0), l1i_line_size(0), l1i_banks(0)
     {}
 };
-
+// ...existing code...
 enum exec_unit_type_t {
   NONE = 0,
   SP = 1,
@@ -1441,7 +1441,6 @@ class ldst_unit : public pipelined_simd_unit {
    void force_drain();
    bool pipeline_empty() const;
    bool dispatch_reg_empty() const;
-   void log_memory_state(unsigned cycle)  const;
    bool wb_pending_empty() const;
 bool response_fifo_empty() const;
 void set_L1C(read_only_cache* l1c) { m_L1C = l1c; }
@@ -2198,7 +2197,6 @@ class shader_core_ctx : public core_t {
   void prepare_for_reconfiguration();
   bool is_dispatch_stalled_for_reconfig() const;
   void destroy_schedulers();
-  void log_pipeline_drain_state(unsigned cycle) const;
 void create_schedulers_with_count(unsigned num_schedulers);
 bool schedulers_pipeline_drained() const;
 void reset_scheduler_state();
