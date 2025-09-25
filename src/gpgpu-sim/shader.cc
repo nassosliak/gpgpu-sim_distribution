@@ -101,18 +101,7 @@ void exec_shader_core_ctx::create_shd_warp() {
     m_warp[k] = new shd_warp_t(this, m_config->warp_size);
   }
 }
-static std::string extract_cache_config(const std::string& config_path, const std::string& cache_key) {
-    std::ifstream infile(config_path);
-    std::string line;
-    std::regex pattern("-gpgpu_cache:" + cache_key + R"(\s+([^\s]+))");
-    while (std::getline(infile, line)) {
-        std::smatch match;
-        if (std::regex_search(line, match, pattern)) {
-            return match[1];
-        }
-    }
-    return "";
-}
+
 bool opndcoll_rfu_t::all_cu_free() const {
     for (size_t i = 0; i < m_cu.size(); ++i) {
         if (!m_cu[i]->is_free()) return false;
@@ -129,8 +118,65 @@ bool ldst_unit::pipeline_empty() const {
     }
     return true;
 }
-bool ldst_unit::dispatch_reg_empty() const { return m_dispatch_reg->empty(); }
-bool ldst_unit::wb_pending_empty() const { return m_next_wb.empty(); }
+struct ShaderCoreConfigValues {
+    std::string gpgpu_pipeline_widths;
+    unsigned gpgpu_num_sp_units;
+    unsigned gpgpu_num_sfu_units;
+    unsigned gpgpu_num_dp_units;
+    unsigned gpgpu_num_int_units;
+    unsigned gpgpu_num_tensor_core_units;
+    unsigned gpgpu_num_sched_per_core;
+};
+
+// Parse config file and fill the struct
+ShaderCoreConfigValues parse_shader_core_config(const std::string& config_path) {
+    ShaderCoreConfigValues values;
+    std::ifstream infile(config_path);
+    std::string line;
+    std::regex pipeline_widths_re(R"(-gpgpu_pipeline_widths\s+([^\s]+))");
+    std::regex sp_units_re(R"(-gpgpu_num_sp_units\s+(\d+))");
+    std::regex sfu_units_re(R"(-gpgpu_num_sfu_units\s+(\d+))");
+    std::regex dp_units_re(R"(-gpgpu_num_dp_units\s+(\d+))");
+    std::regex int_units_re(R"(-gpgpu_num_int_units\s+(\d+))");
+    std::regex tensor_units_re(R"(-gpgpu_num_tensor_core_units\s+(\d+))");
+    std::regex sched_per_core_re(R"(-gpgpu_num_sched_per_core\s+(\d+))");
+
+    while (std::getline(infile, line)) {
+        std::smatch match;
+        if (std::regex_search(line, match, pipeline_widths_re)) {
+            values.gpgpu_pipeline_widths = match[1];
+        } else if (std::regex_search(line, match, sp_units_re)) {
+            values.gpgpu_num_sp_units = std::stoi(match[1]);
+        } else if (std::regex_search(line, match, sfu_units_re)) {
+            values.gpgpu_num_sfu_units = std::stoi(match[1]);
+        } else if (std::regex_search(line, match, dp_units_re)) {
+            values.gpgpu_num_dp_units = std::stoi(match[1]);
+        } else if (std::regex_search(line, match, int_units_re)) {
+            values.gpgpu_num_int_units = std::stoi(match[1]);
+        } else if (std::regex_search(line, match, tensor_units_re)) {
+            values.gpgpu_num_tensor_core_units = std::stoi(match[1]);
+        } else if (std::regex_search(line, match, sched_per_core_re)) {
+            values.gpgpu_num_sched_per_core = std::stoi(match[1]);
+        }
+    }
+    return values;
+}
+void opndcoll_rfu_t::cleanup() {
+    // Delete all collector units
+    for (auto cu_ptr : m_cu) {
+        if (cu_ptr->m_warp) {
+            delete cu_ptr->m_warp;
+            cu_ptr->m_warp = nullptr;
+        }
+    }
+    m_cu.clear();
+    m_cus.clear();
+    m_dispatch_units.clear();
+    m_in_ports.clear();
+    // Optionally reset arbiter and other state
+    m_arbiter.reset();
+    m_initialized = false;
+}
 bool shader_core_ctx::execution_pipeline_drained() const {
     for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
         if (!m_pipeline_reg[i].empty()) {
@@ -139,236 +185,105 @@ bool shader_core_ctx::execution_pipeline_drained() const {
         }
     }
     for (size_t i = 0; i < m_fu.size(); ++i) {
-      if (m_fu[i] == m_ldst_unit) continue;
+      // if (m_fu[i] == m_ldst_unit) continue;
         if (m_fu[i] && m_fu[i]->is_occupied()) {
             printf("Core %u: FU %zu (%s) is occupied\n", m_sid, i, m_fu[i]->get_name());
             return false;
         }
     }
-    // for (unsigned i = 0; i < m_config->max_warps_per_shader; ++i) {
-    //     if (m_scoreboard->pendingWrites(i)) {
-    //         printf("Core %u: Scoreboard has pending writes for warp %u\n", m_sid, i);
-    //         return false;
-    //     }
-    // }
-    if (m_ldst_unit) {
-        // if (!m_ldst_unit->response_fifo_empty()) {
-        //     printf("Core %u: LDST response FIFO not empty\n", m_sid);
-        //     return false;
-        // }
-        if (!m_ldst_unit->pending_writes_empty()) {
-            printf("Core %u: LDST pending writes not empty\n", m_sid);
-            return false;
-        }
-    }
     return true;
 }
-// bool shader_core_ctx::execution_pipeline_drained() const {
-//     // 1. Check ALL pipeline registers except memory-related ones
-//     for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
-//         // Skip memory-related stages during drain check
-//         if (i == OC_EX_MEM || i == ID_OC_MEM) continue;
-        
-//         if (!m_pipeline_reg[i].empty()) {
-//             printf("Core %u: Pipeline reg %zu (%s) not empty\n", m_sid, i, 
-//                    (i < N_PIPELINE_STAGES) ? pipeline_stage_name_decode[i] : "SPECIALIZED");
-//             return false;
-//         }
-//     }
-    
-//     // 2. Check all non-LDST functional units
-//     for (size_t i = 0; i < m_fu.size(); ++i) {
-//         if (m_fu[i] == m_ldst_unit) continue;
-//         if (m_fu[i] && m_fu[i]->is_occupied()) {
-//             printf("Core %u: FU %zu (%s) is occupied\n", m_sid, i, m_fu[i]->get_name());
-//             return false;
-//         }
-//     }
-    
-//     // 3. Check scoreboard for pending writes (non-memory)
-//     for (unsigned i = 0; i < m_config->max_warps_per_shader; ++i) {
-//         if (m_scoreboard->pendingWrites(i)) {
-//             // Allow memory-related pending writes during reconfiguration
-//             bool has_non_mem_pending = false;
-//             // Check if there are non-memory pending writes
-//             // This is a simplified check - you might need to enhance the scoreboard
-//             // to track memory vs non-memory pending writes separately
-//             if (has_non_mem_pending) {
-//                 printf("Core %u: Scoreboard has non-memory pending writes for warp %u\n", m_sid, i);
-//                 return false;
-//             }
-//         }
-//     }
-    
-//     // 4. Check operand collector
-//     // if (!m_operand_collector.all_cu_free()) {
-//     //     printf("Core %u: Operand collector not idle\n", m_sid);
-//     //     return false;
-//     // }
-    
-//     // 5. Check result buses
-//     // for (unsigned i = 0; i < num_result_bus; i++) {
-//     //     if (m_result_bus[i]->any()) {
-//     //         printf("Core %u: Result bus %u not idle\n", m_sid, i);
-//     //         return false;
-//     //     }
-//     // }
-//     //     if (!schedulers_pipeline_drained()) {
-//     //     printf("Core %u: Schedulers not drained\n", m_sid);
-//     //     return false;
-//     // }
-//     //     if (m_ldst_unit && !m_ldst_unit->pipeline_empty()) {
-//     //     return false;
-//     // }
-    
-//     // // 3. Check pending memory operations
-//     // if (m_ldst_unit && !m_ldst_unit->response_fifo_empty()) {
-//     //     return false;
-//     // }
-//     return true;
-// }
-bool shader_core_ctx::memory_unit_drained() const {
-    if (!m_ldst_unit) return true;
-    
-    // Check if memory unit pipeline is empty
-    if (!m_ldst_unit->pipeline_empty()) {
-        printf("Core %u: LDST pipeline not empty\n", m_sid);
-        return false;
-    }
-    
-    // Check if response FIFO is empty
-    if (!m_ldst_unit->response_fifo_empty()) {
-        printf("Core %u: LDST response FIFO not empty\n", m_sid);
-        return false;
-    }
-    
-    // Check if there are pending writes
-    if (!m_ldst_unit->pending_writes_empty()) {
-        printf("Core %u: LDST has pending writes\n", m_sid);
-        return false;
-    }
-    
-    // Check dispatch register
-    if (!m_ldst_unit->dispatch_reg_empty()) {
-        printf("Core %u: LDST dispatch register not empty\n", m_sid);
-        return false;
-    }
-    
-    // Check writeback buffer
-    if (!m_ldst_unit->wb_pending_empty()) {
-        printf("Core %u: LDST writeback pending\n", m_sid);
-        return false;
-    }
-    
-    return true;
-}
-void shader_core_ctx::prepare_for_reconfiguration() {
-    // Optional: Flush caches for clean state
-    if (m_ldst_unit) {
-        m_ldst_unit->flush(); // This flushes L1D
-    }
-}
-void opndcoll_rfu_t::reset_state() {
-    // Clear all collector units
-    for (unsigned i = 0; i < m_cu.size(); i++) {
-        if (m_cu[i] && !m_cu[i]->is_free()) {
-            m_cu[i]->reset(); // Use the new public reset method
-        }
-    }
-    
-    // Reset arbiter
-    m_arbiter.reset();
-}
+
+
 void shader_core_ctx::perform_reconfiguration(const ExecUnitReconfig& reconfig) {
-// for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
-//         if (i == OC_EX_MEM || i == ID_OC_MEM) continue; // Keep memory stages
-//         m_pipeline_reg[i].clear();
-//     }
-    
-//     // 2. Clear result buses
-//     for (unsigned i = 0; i < num_result_bus; i++) {
-//         m_result_bus[i]->reset();
-//     }
-//         // 3. Reset operand collector
-//     m_operand_collector.reset_state();
-    // Update the new configuration parameters
+    printf("Core %u: Starting reconfiguration for %s units\n", m_sid, reconfig.unit_type.c_str());
+
+    // 1. Update configuration with new values from reconfig
     if (reconfig.unit_type == "SP") {
-    m_config->gpgpu_num_sp_units = reconfig.num_units;
-    m_config->max_sp_latency = reconfig.latency;
-  } else if (reconfig.unit_type == "SFU") {
-      m_config->gpgpu_num_sfu_units = reconfig.num_units;
-      m_config->max_sfu_latency = reconfig.latency;
-  } else if (reconfig.unit_type == "DP") {
-      m_config->gpgpu_num_dp_units = reconfig.num_units;
-      m_config->max_dp_latency = reconfig.latency;
-  } else if (reconfig.unit_type == "INT") {
-      m_config->gpgpu_num_int_units = reconfig.num_units;
-      m_config->max_int_latency = reconfig.latency;
-  } else if (reconfig.unit_type == "TENSOR") {
-      m_config->gpgpu_num_tensor_core_units = reconfig.num_units;
-      m_config->max_tensor_core_latency = reconfig.latency;
-  } else if (reconfig.unit_type == "SCHEDULER") {
-    m_config->gpgpu_num_sched_per_core = reconfig.num_units;
-  }
-
-    create_function_units_and_pipeline_regs();
-
-    
-    printf("Core %u: Reconfigured %s units to %u (latency: %u)\n", 
-           m_sid, reconfig.unit_type.c_str(), reconfig.num_units, reconfig.latency);
-}
-void parse_fu_counts_simple(const std::string& config_path,
-                            unsigned& sp, unsigned& sfu, unsigned& dp,
-                            unsigned& int_fu, unsigned& tensor, unsigned& num_schedulers) {
-    std::ifstream infile(config_path);
-    std::string line;
-    sp = sfu = dp = int_fu = tensor = num_schedulers =0;
-    while (std::getline(infile, line)) {
-        if (line.find("gpgpu_num_sp_units") != std::string::npos)
-            sscanf(line.c_str(), "-gpgpu_num_sp_units %u", &sp);
-        else if (line.find("gpgpu_num_sfu_units") != std::string::npos)
-            sscanf(line.c_str(), "-gpgpu_num_sfu_units %u", &sfu);
-        else if (line.find("gpgpu_num_dp_units") != std::string::npos)
-            sscanf(line.c_str(), "-gpgpu_num_dp_units %u", &dp);
-        else if (line.find("gpgpu_num_int_units") != std::string::npos)
-            sscanf(line.c_str(), "-gpgpu_num_int_units %u", &int_fu);
-        else if (line.find("gpgpu_num_tensor_core_units") != std::string::npos)
-            sscanf(line.c_str(), "-gpgpu_num_tensor_core_units %u", &tensor);
-        else if (line.find("gpgpu_num_sched_per_core") != std::string::npos)
-            sscanf(line.c_str(), "-gpgpu_num_sched_per_core %u", &num_schedulers);
-    }
-    printf("Parsed units from %s: SP=%u SFU=%u DP=%u INT=%u TENSOR=%u SCHEDULERS=%u\n",
-           config_path.c_str(), sp, sfu, dp, int_fu, tensor, num_schedulers);
-
-    // Defensive: At least one FU must be nonzero
-    if (sp == 0 && sfu == 0 && dp == 0 && int_fu == 0 && tensor == 0 && num_schedulers == 0) {
-        printf("ERROR: All functional unit counts are zero after parsing %s! Aborting reconfiguration.\n", config_path.c_str());
-        abort();
+        m_config->gpgpu_num_sp_units = reconfig.num_units;
+        m_config->max_sp_latency = reconfig.latency;
+    } else if (reconfig.unit_type == "SFU") {
+        m_config->gpgpu_num_sfu_units = reconfig.num_units;
+        m_config->max_sfu_latency = reconfig.latency;
+    } else if (reconfig.unit_type == "DP") {
+        m_config->gpgpu_num_dp_units = reconfig.num_units;
+        m_config->max_dp_latency = reconfig.latency;
+    } else if (reconfig.unit_type == "INT") {
+        m_config->gpgpu_num_int_units = reconfig.num_units;
+        m_config->max_int_latency = reconfig.latency;
+    } else if (reconfig.unit_type == "TENSOR") {
+        m_config->gpgpu_num_tensor_core_units = reconfig.num_units;
+        m_config->max_tensor_core_latency = reconfig.latency;
+    } else if (reconfig.unit_type == "SCHEDULER") {
+        m_config->gpgpu_num_sched_per_core = reconfig.num_units;
     }
 
-}
-bool scheduler_unit::has_active_warps() const {
-    for (auto warp : m_supervised_warps) {
-        if (warp && !warp->done_exit() && !warp->waiting()) {
-            return true;
-        }
+    //ToDO
+    ShaderCoreConfigValues new_values = parse_shader_core_config(reconfig.gpgpusim_config_path);
+
+    // 2. Delete old pipeline/FU objects
+    // Delete function units
+    for (auto fu : m_fu) {
+        delete fu;
     }
-    return false;
-}
-void shader_core_ctx::destroy_schedulers() {
-    // Clean up existing schedulers
-    for (auto scheduler : schedulers) {
-        delete scheduler;
+    m_fu.clear();
+    m_dispatch_port.clear();
+    m_issue_port.clear();
+
+    // Delete pipeline registers
+    m_pipeline_reg.clear();
+    m_specilized_dispatch_reg.clear();
+
+    // Delete result bus
+    for (auto rb : m_result_bus) {
+        delete rb;
+    }
+    m_result_bus.clear();
+
+    // Delete schedulers
+    for (auto sch : schedulers) {
+        delete sch;
     }
     schedulers.clear();
+
+    // 3. Update config object with new values
+    m_config->gpgpu_num_sp_units = new_values.gpgpu_num_sp_units;
+    m_config->gpgpu_num_sfu_units = new_values.gpgpu_num_sfu_units;
+    m_config->gpgpu_num_dp_units = new_values.gpgpu_num_dp_units;
+    m_config->gpgpu_num_int_units = new_values.gpgpu_num_int_units;
+    m_config->gpgpu_num_tensor_core_units = new_values.gpgpu_num_tensor_core_units;
+    m_config->gpgpu_num_sched_per_core = new_values.gpgpu_num_sched_per_core;
+    for (size_t j = 0; j < m_config->m_specialized_unit.size(); ++j) {
+    m_config->m_specialized_unit[j].id_oc_spec_reg_width = m_config->gpgpu_num_sched_per_core;
+}
+    // Parse pipeline widths string (e.g. "4,4,4,4,4,4,4,4,4,4,8,4,4")
+    std::vector<unsigned> new_pipe_widths;
+    std::istringstream iss(new_values.gpgpu_pipeline_widths);
+    std::string token;
+    while (std::getline(iss, token, ',')) {
+        new_pipe_widths.push_back(std::stoi(token));
+    }
+    // Update pipe_widths in config
+    for (size_t i = 0; i < new_pipe_widths.size() && i < N_PIPELINE_STAGES; ++i) {
+        m_config->pipe_widths[i] = new_pipe_widths[i];
+    }
     
-    // Reset scheduler-related state
-    Issue_Prio = 0;
+    // 4. Recreate pipeline and FU objects
+    create_front_pipeline();
+    if (m_operand_collector.initialized()) {
+    m_operand_collector.cleanup();
+}
+    create_exec_pipeline();
+    create_schedulers();
+    
+    printf("Core %u: Successfully reconfigured %s units to %u (latency: %u)\n", 
+           m_sid, reconfig.unit_type.c_str(), reconfig.num_units, reconfig.latency);
 }
 
+
+
 void shader_core_ctx::create_schedulers_with_count(unsigned num_schedulers) {
-    // First destroy existing schedulers
-    destroy_schedulers();
+
     
     // Update config
     m_config->gpgpu_num_sched_per_core = num_schedulers;
@@ -456,134 +371,75 @@ void shader_core_ctx::create_schedulers_with_count(unsigned num_schedulers) {
 }
 
 void shader_core_ctx::add_execution_units_if_increased(const ExecUnitReconfig& reconfig) {
-    // Only add new units if increasing
-    
-    bool increased = false;
-    shader_core_config* new_config = new shader_core_config(*m_config);
+    // Parse new config values
+    ShaderCoreConfigValues new_values = parse_shader_core_config(reconfig.gpgpusim_config_path);
 
-    if (reconfig.unit_type == "SP" && reconfig.num_units > m_config->gpgpu_num_sp_units) {
-        increased = true;
-        unsigned old_units = m_config->gpgpu_num_sp_units;
-        new_config->gpgpu_num_sp_units = reconfig.num_units;
-        new_config->max_sp_latency = reconfig.latency;
-        for (unsigned k = old_units; k < reconfig.num_units; k++) {
-            m_fu.push_back(new sp_unit(&m_pipeline_reg[EX_WB], new_config, this, k));
+    // Add SP units if increased
+    if (new_values.gpgpu_num_sp_units > m_config->gpgpu_num_sp_units) {
+        unsigned old_count = m_config->gpgpu_num_sp_units;
+        for (unsigned k = old_count; k < new_values.gpgpu_num_sp_units; ++k) {
+            m_fu.push_back(new sp_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
             m_dispatch_port.push_back(ID_OC_SP);
             m_issue_port.push_back(OC_EX_SP);
         }
+        m_config->gpgpu_num_sp_units = new_values.gpgpu_num_sp_units;
     }
-    
-    else if (reconfig.unit_type == "SFU" && reconfig.num_units > m_config->gpgpu_num_sfu_units) {
-        increased = true;
-        unsigned old_units = m_config->gpgpu_num_sfu_units;
-        new_config->gpgpu_num_sfu_units = reconfig.num_units;
-        new_config->max_sfu_latency = reconfig.latency;
-        for (unsigned k = old_units; k < reconfig.num_units; k++) {
-            m_fu.push_back(new sfu(&m_pipeline_reg[EX_WB], new_config, this, k));
+    // Add SFU units if increased
+    if (new_values.gpgpu_num_sfu_units > m_config->gpgpu_num_sfu_units) {
+        unsigned old_count = m_config->gpgpu_num_sfu_units;
+        for (unsigned k = old_count; k < new_values.gpgpu_num_sfu_units; ++k) {
+            m_fu.push_back(new sfu(&m_pipeline_reg[EX_WB], m_config, this, k));
             m_dispatch_port.push_back(ID_OC_SFU);
             m_issue_port.push_back(OC_EX_SFU);
         }
-    } else if (reconfig.unit_type == "DP" && reconfig.num_units > m_config->gpgpu_num_dp_units) {
-        increased = true;
-        unsigned old_units = m_config->gpgpu_num_dp_units;
-        new_config->gpgpu_num_dp_units = reconfig.num_units;
-        new_config->max_dp_latency = reconfig.latency;
-        for (unsigned k = old_units; k < reconfig.num_units; k++) {
-            m_fu.push_back(new dp_unit(&m_pipeline_reg[EX_WB], new_config, this, k));
+        m_config->gpgpu_num_sfu_units = new_values.gpgpu_num_sfu_units;
+    }
+    // Add DP units if increased
+    if (new_values.gpgpu_num_dp_units > m_config->gpgpu_num_dp_units) {
+        unsigned old_count = m_config->gpgpu_num_dp_units;
+        for (unsigned k = old_count; k < new_values.gpgpu_num_dp_units; ++k) {
+            m_fu.push_back(new dp_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
             m_dispatch_port.push_back(ID_OC_DP);
             m_issue_port.push_back(OC_EX_DP);
         }
-    } else if (reconfig.unit_type == "INT" && reconfig.num_units > m_config->gpgpu_num_int_units) {
-        increased = true;
-        unsigned old_units = m_config->gpgpu_num_int_units;
-        new_config->gpgpu_num_int_units = reconfig.num_units;
-        new_config->max_int_latency = reconfig.latency;
-        for (unsigned k = old_units; k < reconfig.num_units; k++) {
-            m_fu.push_back(new int_unit(&m_pipeline_reg[EX_WB], new_config, this, k));
+        m_config->gpgpu_num_dp_units = new_values.gpgpu_num_dp_units;
+    }
+    // Add INT units if increased
+    if (new_values.gpgpu_num_int_units > m_config->gpgpu_num_int_units) {
+        unsigned old_count = m_config->gpgpu_num_int_units;
+        for (unsigned k = old_count; k < new_values.gpgpu_num_int_units; ++k) {
+            m_fu.push_back(new int_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
             m_dispatch_port.push_back(ID_OC_INT);
             m_issue_port.push_back(OC_EX_INT);
         }
-    } else if ((reconfig.unit_type == "TENSOR" || reconfig.unit_type == "TENSOR_CORE") &&
-               reconfig.num_units > m_config->gpgpu_num_tensor_core_units) {
-        increased = true;
-        unsigned old_units = m_config->gpgpu_num_tensor_core_units;
-        new_config->gpgpu_num_tensor_core_units = reconfig.num_units;
-        new_config->max_tensor_core_latency = reconfig.latency;
-        for (unsigned k = old_units; k < reconfig.num_units; k++) {
-            m_fu.push_back(new tensor_core(&m_pipeline_reg[EX_WB], new_config, this, k));
+        m_config->gpgpu_num_int_units = new_values.gpgpu_num_int_units;
+    }
+    // Add Tensor Core units if increased
+    if (new_values.gpgpu_num_tensor_core_units > m_config->gpgpu_num_tensor_core_units) {
+        unsigned old_count = m_config->gpgpu_num_tensor_core_units;
+        for (unsigned k = old_count; k < new_values.gpgpu_num_tensor_core_units; ++k) {
+            m_fu.push_back(new tensor_core(&m_pipeline_reg[EX_WB], m_config, this, k));
             m_dispatch_port.push_back(ID_OC_TENSOR_CORE);
             m_issue_port.push_back(OC_EX_TENSOR_CORE);
         }
+        m_config->gpgpu_num_tensor_core_units = new_values.gpgpu_num_tensor_core_units;
     }
-    else if (reconfig.unit_type == "SCHEDULER" && reconfig.num_units > m_config->gpgpu_num_sched_per_core) {
-        // Handle scheduler increase
-        increased = true;
-        new_config->gpgpu_num_sched_per_core = reconfig.num_units;
-        
-        // Create schedulers with the new count
-        printf("Core %u: Increased schedulers to %u\n", m_sid, reconfig.num_units);
+    // Add schedulers if increased
+    if (new_values.gpgpu_num_sched_per_core > m_config->gpgpu_num_sched_per_core) {
+        create_schedulers_with_count(new_values.gpgpu_num_sched_per_core);
     }
-    if (increased) {
-        m_config = new_config;
-        create_schedulers_with_count(reconfig.num_units);
-        printf("Added %u schedulers\n", reconfig.num_units);
-        printf("Core %u: Increased %s units to %u (latency: %u)\n",
-               m_sid, reconfig.unit_type.c_str(), reconfig.num_units, reconfig.latency);
-    } else {
-        delete new_config;
+    // Update pipeline widths if changed
+    std::vector<unsigned> new_pipe_widths;
+    std::istringstream iss(new_values.gpgpu_pipeline_widths);
+    std::string token;
+    while (std::getline(iss, token, ',')) {
+        new_pipe_widths.push_back(std::stoi(token));
+    }
+    for (size_t i = 0; i < new_pipe_widths.size() && i < N_PIPELINE_STAGES; ++i) {
+        m_config->pipe_widths[i] = new_pipe_widths[i];
     }
 }
-void ldst_unit::force_drain() {
-    // Force clear all internal state to drain the unit
-    
-    // Clear response FIFO
-    while (!m_response_fifo.empty()) {
-        mem_fetch* mf = m_response_fifo.front();
-        m_response_fifo.pop_front();
-        delete mf; // Clean up memory
-    }
-    
-    // Clear pending writes
-    m_pending_writes.clear();
-    
-    // Clear pending LDGSTS
-    m_pending_ldgsts.clear();
-    
-    // Clear dispatch register
-    if (m_dispatch_reg) {
-        m_dispatch_reg->clear();
-    }
-    
-    // Clear pipeline registers
-    for (unsigned stage = 0; stage < m_pipeline_depth; stage++) {
-        if (m_pipeline_reg[stage]) {
-            m_pipeline_reg[stage]->clear();
-        }
-    }
-    
-    // Clear writeback buffer
-    m_next_wb.clear();
-    
-    // Reset writeback arbitration
-    m_writeback_arb = 0;
-    m_next_global = nullptr;
-    
-    // Clear L1 latency queues if they exist
-    if (m_config->m_L1D_config.l1_latency > 0) {
-        for (unsigned j = 0; j < m_config->m_L1D_config.l1_banks; j++) {
-            while (!l1_latency_queue[j].empty()) {
-                mem_fetch* mf = l1_latency_queue[j].front();
-                l1_latency_queue[j].pop_front();
-                delete mf;
-            }
-        }
-    }
-    
-    // Reset active instructions count
-    active_insts_in_pipeline = 0;
-    
-    printf("Core %u: LDST unit force drained\n", m_sid);
-}
+
 
 
 void shader_core_ctx::check_exec_unit_reconfiguration() {
@@ -628,8 +484,7 @@ void shader_core_ctx::check_exec_unit_reconfiguration() {
     unsigned curr_schedulers = m_config->gpgpu_num_sched_per_core;
     // Parse new config file for FU counts
     unsigned next_sp, next_sfu, next_dp, next_int, next_tensor, next_schedulers;
-    parse_fu_counts_simple(reconfig.gpgpusim_config_path, next_sp, next_sfu, 
-                          next_dp, next_int, next_tensor, next_schedulers);
+
     bool any_change =
         (next_sp != curr_sp) || (next_sfu != curr_sfu) ||
         (next_dp != curr_dp) || (next_int != curr_int) ||
@@ -751,20 +606,21 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
             return;
 
             // Do not force reconfiguration; skip this reconfig point on timeout
-        //     if (m_dispatch_stall_cycles > 100) {
-        //         printf("WARNING: Pipeline drain timeout, exiting...\n");
-        //         // m_ldst_unit->force_drain();
-        // //         for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
-        // //     simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
-        // //     for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
-        // //         shader_core_ctx* core = cluster->get_core(core_id);
-        // //         if (core) {
-        // //             core->m_reconfig_dispatch_stall = false;
-        // //         }
-        // //     }
-        // // }
-        //         // exit(1);
-        //     } else {
+            if (m_dispatch_stall_cycles > 100) {
+                printf("WARNING: Pipeline drain timeout, exiting...\n");
+                // m_ldst_unit->force_drain();
+                for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
+            simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
+            for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
+                shader_core_ctx* core = cluster->get_core(core_id);
+                if (core) {
+                    core->m_reconfig_dispatch_stall = false;
+                }
+            }
+        }
+                // exit(1);
+            }
+            // else {
         //         return;
         //     }
         }
@@ -818,116 +674,10 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
     }
   }
 
-void shader_core_ctx::create_function_units_and_pipeline_regs() {
-    
-  m_num_function_units =
-        m_config->gpgpu_num_sp_units +
-        m_config->gpgpu_num_sfu_units +
-        m_config->gpgpu_num_dp_units +
-        m_config->gpgpu_num_int_units +
-        m_config->gpgpu_num_tensor_core_units +
-        m_config->m_specialized_unit_num +
-        1;
-  // 1. Delete old FUs
 
-    for (auto fu : m_fu) {
-        // Only delete if not the LDST unit
-        if (fu != m_ldst_unit) delete fu;
-    }
-    m_fu.clear();
-    m_dispatch_port.clear();
-    m_issue_port.clear();
-    m_specilized_dispatch_reg.clear();
-    // for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
-    //     m_specilized_dispatch_reg.push_back(
-    //         &m_pipeline_reg[m_config->m_specialized_unit[j].ID_OC_SPEC_ID]);
-    // }
-    // 2. Delete old result buses
-    for (auto bus : m_result_bus) {
-        delete bus;
-    }
-    m_result_bus.clear();
 
-    // 3. Clear pipeline registers
-    for (auto& reg : m_pipeline_reg) {
-        reg.clear();
-    }
 
-    // 4. Re-create FUs and result buses (copy from create_exec_pipeline)
-    // SP units
-    for (unsigned k = 0; k < m_config->gpgpu_num_sp_units; k++) {
-        m_fu.push_back(new sp_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
-        m_dispatch_port.push_back(ID_OC_SP);
-        m_issue_port.push_back(OC_EX_SP);
-    }
-    // DP units
-    for (unsigned k = 0; k < m_config->gpgpu_num_dp_units; k++) {
-        m_fu.push_back(new dp_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
-        m_dispatch_port.push_back(ID_OC_DP);
-        m_issue_port.push_back(OC_EX_DP);
-    }
-    // INT units
-    for (unsigned k = 0; k < m_config->gpgpu_num_int_units; k++) {
-        m_fu.push_back(new int_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
-        m_dispatch_port.push_back(ID_OC_INT);
-        m_issue_port.push_back(OC_EX_INT);
-    }
-    // SFU units
-    for (unsigned k = 0; k < m_config->gpgpu_num_sfu_units; k++) {
-        m_fu.push_back(new sfu(&m_pipeline_reg[EX_WB], m_config, this, k));
-        m_dispatch_port.push_back(ID_OC_SFU);
-        m_issue_port.push_back(OC_EX_SFU);
-    }
-    // Tensor core units
-    for (unsigned k = 0; k < m_config->gpgpu_num_tensor_core_units; k++) {
-        m_fu.push_back(new tensor_core(&m_pipeline_reg[EX_WB], m_config, this, k));
-        m_dispatch_port.push_back(ID_OC_TENSOR_CORE);
-        m_issue_port.push_back(OC_EX_TENSOR_CORE);
-    }
-    // Specialized units
-    for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
-        for (unsigned k = 0; k < m_config->m_specialized_unit[j].num_units; k++) {
-            m_fu.push_back(new specialized_unit(
-                &m_pipeline_reg[EX_WB], m_config, this, SPEC_UNIT_START_ID + j,
-                m_config->m_specialized_unit[j].name,
-                m_config->m_specialized_unit[j].latency, k));
-            m_dispatch_port.push_back(m_config->m_specialized_unit[j].ID_OC_SPEC_ID);
-            m_issue_port.push_back(m_config->m_specialized_unit[j].OC_EX_SPEC_ID);
-        }
-    }
-    // Add ldst_unit (if needed)
-    if (m_ldst_unit) m_ldst_unit->reset();
-    m_fu.push_back(m_ldst_unit);
-    m_dispatch_port.push_back(ID_OC_MEM);
-    m_issue_port.push_back(OC_EX_MEM);
-    
-    // 5. Re-create result buses
-    num_result_bus = m_config->pipe_widths[EX_WB];
-    for (unsigned i = 0; i < num_result_bus; i++) {
-        m_result_bus.push_back(new std::bitset<MAX_ALU_LATENCY>());
-    }
-    if (!(m_num_function_units == m_fu.size() &&
-          m_fu.size() == m_dispatch_port.size() &&
-          m_fu.size() == m_issue_port.size())) {
-        printf("DEBUG: m_num_function_units=%u m_fu.size()=%zu m_dispatch_port.size()=%zu m_issue_port.size()=%zu\n",
-            m_num_function_units, m_fu.size(), m_dispatch_port.size(), m_issue_port.size());
-    }
-    // 6. Assert sizes match
-    assert(m_num_function_units == m_fu.size() &&
-           m_fu.size() == m_dispatch_port.size() &&
-           m_fu.size() == m_issue_port.size());
-}
-bool shader_core_ctx::schedulers_pipeline_drained() const {
-    // Check if schedulers have any pending work
-    for (auto scheduler : schedulers) {
-        // Check if scheduler has any active warps or pending instructions
-        // This is a basic implementation - you might need to enhance it
-        if (scheduler->has_active_warps()) { 
-            return false;
-        }
-    }
-    return true;
-}
+
 
 void shader_core_ctx::create_front_pipeline() {
   // pipeline_stages is the sum of normal pipeline stages and specialized_unit
@@ -4627,9 +4377,16 @@ void shader_core_config::set_pipeline_latency() {
 }
 
 void shader_core_ctx::cycle() {
-    
+    if (!m_gpu || !m_cluster) {
+        printf("FATAL: Core %u has corrupted pointers before reconfig check!\n", m_sid);
+        abort();
+    }
     // Check for reconfiguration (only core 0 makes decisions)
     if (m_sid == 0) {
+      if (!m_gpu || !m_cluster) {
+            printf("FATAL: Core %u has corrupted pointers before reconfig check!\n", m_sid);
+            abort();
+        }
          check_exec_unit_reconfiguration();
     }
     
@@ -5418,7 +5175,7 @@ bool opndcoll_rfu_t::collector_unit_t::allocate(register_set *pipeline_reg_set,
 }
 
 void opndcoll_rfu_t::collector_unit_t::dispatch() {
-if (m_rfu->shader_core()->get_reconfig_dispatch_stall()) {
+if (m_rfu->shader_core()->is_dispatch_stalled_for_reconfig()) {
     return; // Stall dispatch during reconfiguration
   }
   assert(m_not_ready.none());

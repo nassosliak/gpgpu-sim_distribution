@@ -443,7 +443,7 @@ class scheduler_unit {  // this can be copied freely, so can be used in std
   virtual void done_adding_supervised_warps() {
     m_last_supervised_issued = m_supervised_warps.end();
   }
-  virtual bool has_active_warps() const;
+
   // The core scheduler cycle method is meant to be common between
   // all the derived schedulers.  The scheduler's behaviour can be
   // modified by changing the contents of the m_next_cycle_prioritized_warps
@@ -690,7 +690,8 @@ class opndcoll_rfu_t {  // operand collector based register file unit
     m_in_ports.clear();
     m_initialized = false;
   }
-  
+  void cleanup();
+  bool initialized() const { return m_initialized; }
   void reset_state();
   bool all_cu_free() const;
   void add_cu_set(unsigned cu_set, unsigned num_cu, unsigned num_dispatch);
@@ -979,6 +980,7 @@ class opndcoll_rfu_t {  // operand collector based register file unit
   };
 
   class collector_unit_t {
+    friend class opndcoll_rfu_t;
    public:
     // constructors
     collector_unit_t() {
