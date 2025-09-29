@@ -95,12 +95,3 @@ Usage: ptx_tids2pcs <tids> <tidslen> <shd_idx>
 <tidslen>: length of <tids> array
 <shd_idx>: shader core number
 end
-
-break gpgpu_sim::deadlock_check
-  commands
-  printf "DEADLOCK DETECTED\n"
-  dp -1 -1
-  warp_state 0
-  mem_state
-  bt
-end
