@@ -583,7 +583,7 @@ class gpgpu_sim : public gpgpu_t {
         }
         return nullptr;
     }
-  gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx);
+  gpgpu_sim(gpgpu_sim_config &config, gpgpu_context *ctx);
 
   void log_phase_behavior();
 
@@ -636,7 +636,7 @@ class gpgpu_sim : public gpgpu_t {
   PowerscalingCoefficients *get_scaling_coeffs();
   void decrement_kernel_latency();
 
-  const gpgpu_sim_config &get_config() const { return m_config; }
+  gpgpu_sim_config &get_config() const { return m_config; }
   void gpu_print_stat(unsigned long long streamID);
   void dump_pipeline(int mask, int s, int m) const;
 
@@ -650,7 +650,7 @@ class gpgpu_sim : public gpgpu_t {
    * Returning the configuration of the shader core, used by the functional
    * simulation only so far
    */
-  const shader_core_config *getShaderCoreConfig();
+  shader_core_config *getShaderCoreConfig();
 
   //! Get shader core Memory Configuration
   /*!
@@ -731,10 +731,10 @@ class gpgpu_sim : public gpgpu_t {
   bool gpu_deadlock;
 
   //// configuration parameters ////
-  const gpgpu_sim_config &m_config;
+  gpgpu_sim_config &m_config;
 
   const struct cudaDeviceProp *m_cuda_properties;
-  const shader_core_config *m_shader_config;
+  shader_core_config *m_shader_config;
   const memory_config *m_memory_config;
 
   // stats
@@ -824,7 +824,7 @@ class gpgpu_sim : public gpgpu_t {
 
 class exec_gpgpu_sim : public gpgpu_sim {
  public:
-  exec_gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
+  exec_gpgpu_sim(gpgpu_sim_config &config, gpgpu_context *ctx)
       : gpgpu_sim(config, ctx) {
     createSIMTCluster();
   }
@@ -838,7 +838,7 @@ class exec_gpgpu_sim : public gpgpu_sim {
  */
 class sst_gpgpu_sim : public gpgpu_sim {
  public:
-  sst_gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
+  sst_gpgpu_sim(gpgpu_sim_config &config, gpgpu_context *ctx)
       : gpgpu_sim(config, ctx) {
     createSIMTCluster();
   }

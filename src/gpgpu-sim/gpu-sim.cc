@@ -1015,7 +1015,7 @@ void sst_gpgpu_sim::createSIMTCluster() {
   SST_gpgpu_reply_buffer.resize(m_shader_config->n_simt_clusters);
 }
 
-gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
+gpgpu_sim::gpgpu_sim(gpgpu_sim_config &config, gpgpu_context *ctx)
     : gpgpu_t(config, ctx), m_config(config) {
   gpgpu_ctx = ctx;
   m_shader_config = &m_config.m_shader_config;
@@ -2402,7 +2402,7 @@ void gpgpu_sim::dump_pipeline(int mask, int s, int m) const {
   fflush(stdout);
 }
 
-const shader_core_config *gpgpu_sim::getShaderCoreConfig() {
+shader_core_config *gpgpu_sim::getShaderCoreConfig() {
   return m_shader_config;
 }
 

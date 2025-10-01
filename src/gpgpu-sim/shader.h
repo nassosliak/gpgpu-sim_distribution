@@ -1187,9 +1187,9 @@ class shader_core_config;
 
 class simd_function_unit {
  public:
-  simd_function_unit(const shader_core_config *config);
-  virtual ~simd_function_unit() { delete m_dispatch_reg; }
-  virtual bool empty() const { return true; } // Default: not pipeline, always empty
+  simd_function_unit(shader_core_config *config);
+  ~simd_function_unit() { delete m_dispatch_reg; }
+
   // modifiers
   virtual void issue(register_set &source_reg);
   virtual void cycle() = 0;
@@ -1215,7 +1215,7 @@ class simd_function_unit {
 
  protected:
   std::string m_name;
-  const shader_core_config *m_config;
+  shader_core_config *m_config;
   warp_inst_t *m_dispatch_reg;
   static const unsigned MAX_ALU_LATENCY = 512;
   std::bitset<MAX_ALU_LATENCY> occupied;
@@ -1224,7 +1224,7 @@ class simd_function_unit {
 class pipelined_simd_unit : public simd_function_unit {
  public:
   pipelined_simd_unit(register_set *result_port,
-                      const shader_core_config *config, unsigned max_latency,
+                      shader_core_config *config, unsigned max_latency,
                       shader_core_ctx *core, unsigned issue_reg_id);
 
   // modifiers
@@ -1281,7 +1281,7 @@ class pipelined_simd_unit : public simd_function_unit {
 
 class sfu : public pipelined_simd_unit {
  public:
-  sfu(register_set *result_port, const shader_core_config *config,
+  sfu(register_set *result_port, shader_core_config *config,
       shader_core_ctx *core, unsigned issue_reg_id);
   virtual bool can_issue(const warp_inst_t &inst) const {
     switch (inst.op) {
@@ -1303,7 +1303,7 @@ class sfu : public pipelined_simd_unit {
 
 class dp_unit : public pipelined_simd_unit {
  public:
-  dp_unit(register_set *result_port, const shader_core_config *config,
+  dp_unit(register_set *result_port, shader_core_config *config,
           shader_core_ctx *core, unsigned issue_reg_id);
   virtual bool can_issue(const warp_inst_t &inst) const {
     switch (inst.op) {
@@ -1321,7 +1321,7 @@ class dp_unit : public pipelined_simd_unit {
 
 class tensor_core : public pipelined_simd_unit {
  public:
-  tensor_core(register_set *result_port, const shader_core_config *config,
+  tensor_core(register_set *result_port, shader_core_config *config,
               shader_core_ctx *core, unsigned issue_reg_id);
   virtual bool can_issue(const warp_inst_t &inst) const {
     switch (inst.op) {
@@ -1339,7 +1339,7 @@ class tensor_core : public pipelined_simd_unit {
 
 class int_unit : public pipelined_simd_unit {
  public:
-  int_unit(register_set *result_port, const shader_core_config *config,
+  int_unit(register_set *result_port, shader_core_config *config,
            shader_core_ctx *core, unsigned issue_reg_id);
   virtual bool can_issue(const warp_inst_t &inst) const {
     switch (inst.op) {
@@ -1371,7 +1371,7 @@ class int_unit : public pipelined_simd_unit {
 
 class sp_unit : public pipelined_simd_unit {
  public:
-  sp_unit(register_set *result_port, const shader_core_config *config,
+  sp_unit(register_set *result_port, shader_core_config *config,
           shader_core_ctx *core, unsigned issue_reg_id);
   virtual bool can_issue(const warp_inst_t &inst) const {
     switch (inst.op) {
@@ -1401,7 +1401,7 @@ class sp_unit : public pipelined_simd_unit {
 
 class specialized_unit : public pipelined_simd_unit {
  public:
-  specialized_unit(register_set *result_port, const shader_core_config *config,
+  specialized_unit(register_set *result_port, shader_core_config *config,
                    shader_core_ctx *core, int supported_op, char *unit_name,
                    unsigned latency, unsigned issue_reg_id);
   virtual bool can_issue(const warp_inst_t &inst) const {
@@ -1428,7 +1428,7 @@ class ldst_unit : public pipelined_simd_unit {
   ldst_unit(mem_fetch_interface *icnt,
             shader_core_mem_fetch_allocator *mf_allocator,
             shader_core_ctx *core, opndcoll_rfu_t *operand_collector,
-            Scoreboard *scoreboard, const shader_core_config *config,
+            Scoreboard *scoreboard, shader_core_config *config,
             const memory_config *mem_config, class shader_core_stats *stats,
             unsigned sid, unsigned tpc, gpgpu_sim *gpu);
 
@@ -1515,13 +1515,13 @@ void set_L1C(read_only_cache* l1c) { m_L1C = l1c; }
   ldst_unit(mem_fetch_interface *icnt,
             shader_core_mem_fetch_allocator *mf_allocator,
             shader_core_ctx *core, opndcoll_rfu_t *operand_collector,
-            Scoreboard *scoreboard, const shader_core_config *config,
+            Scoreboard *scoreboard, shader_core_config *config,
             const memory_config *mem_config, shader_core_stats *stats,
             unsigned sid, unsigned tpc, l1_cache *new_l1d_cache);
   void init(mem_fetch_interface *icnt,
             shader_core_mem_fetch_allocator *mf_allocator,
             shader_core_ctx *core, opndcoll_rfu_t *operand_collector,
-            Scoreboard *scoreboard, const shader_core_config *config,
+            Scoreboard *scoreboard, shader_core_config *config,
             const memory_config *mem_config, shader_core_stats *stats,
             unsigned sid, unsigned tpc);
 
@@ -1942,7 +1942,7 @@ struct shader_core_stats_pod {
 
 class shader_core_stats : public shader_core_stats_pod {
  public:
-  shader_core_stats(const shader_core_config *config) {
+  shader_core_stats(shader_core_config *config) {
     m_config = config;
     shader_core_stats_pod *pod = reinterpret_cast<shader_core_stats_pod *>(
         this->shader_core_stats_pod_start);
@@ -2128,7 +2128,7 @@ class shader_core_stats : public shader_core_stats_pod {
   }
 
  private:
-  const shader_core_config *m_config;
+  shader_core_config *m_config;
 
   traffic_breakdown *m_outgoing_traffic_stats;  // core to memory partitions
   traffic_breakdown *m_incoming_traffic_stats;  // memory partition to core
@@ -2189,7 +2189,7 @@ class shader_core_ctx : public core_t {
   // creator:
   shader_core_ctx(class gpgpu_sim *gpu, class simt_core_cluster *cluster,
                   unsigned shader_id, unsigned tpc_id,
-                  const shader_core_config *config,
+                  shader_core_config *config,
                   const memory_config *mem_config, shader_core_stats *stats);
 
   // used by simt_core_cluster:
@@ -2215,9 +2215,29 @@ void recreate_caches_after_reconfig(const shader_core_config& new_config);
   void reinit(unsigned start_thread, unsigned end_thread,
               bool reset_not_completed);
   void issue_block2core(class kernel_info_t &kernel);
-l1_cache* m_L1D;
-    read_only_cache* m_L1C;
-    tex_cache* m_L1T;
+  //reconfiguration
+  void init_reconfigurations();
+  unsigned drain_cycles;
+  void cleanup_operand_collector();
+  bool m_dynamic_reconfig_enabled;
+  bool m_waiting_for_reconvergence;
+  std::vector<ExecUnitReconfig> m_reconfig_points;
+  void check_exec_unit_reconfiguration();
+  bool m_reconfig_dispatch_stall;
+  unsigned m_current_config; 
+  void add_functional_units(const ShaderCoreConfigValues& reconfig);
+  void destroy_functional_units();
+  bool execution_pipeline_drained();
+  void destroy_schedulers();
+  void add_schedulers(const ShaderCoreConfigValues& reconfig);
+  void create_functional_units(const ShaderCoreConfigValues& reconfig);
+  void increasing_reconfiguration(const ShaderCoreConfigValues& reconfig, const ExecUnitReconfig& execunit_reconfig);
+  void decreasing_reconfiguration(const ShaderCoreConfigValues& reconfig, const ExecUnitReconfig& execunit_reconfig);
+  bool is_dispatch_stall_active() const { return m_reconfig_dispatch_stall; }
+
+  int m_config_pipe_widths[N_PIPELINE_STAGES];
+  void parse_pipeline_widths(const std::string& widths_str);
+  //end reconfiguration
   void cache_flush();
   void copy_cache_config(cache_config& dest, const cache_config& src);
   void cache_invalidate();
@@ -2278,7 +2298,7 @@ l1_cache* m_L1D;
 
   // accessors
   std::list<unsigned> get_regs_written(const inst_t &fvt) const;
-  const shader_core_config *get_config() const { return m_config; }
+  shader_core_config *get_config() const { return m_config; }
   void print_cache_stats(FILE *fp, unsigned &dl1_accesses,
                          unsigned &dl1_misses);
 
@@ -2757,7 +2777,7 @@ class exec_shader_core_ctx : public shader_core_ctx {
  public:
   exec_shader_core_ctx(class gpgpu_sim *gpu, class simt_core_cluster *cluster,
                        unsigned shader_id, unsigned tpc_id,
-                       const shader_core_config *config,
+                       shader_core_config *config,
                        const memory_config *mem_config,
                        shader_core_stats *stats)
       : shader_core_ctx(gpu, cluster, shader_id, tpc_id, config, mem_config,
@@ -2787,20 +2807,19 @@ class exec_shader_core_ctx : public shader_core_ctx {
 
 class simt_core_cluster {
  public:
- shader_core_ctx* get_core(unsigned core_id) const {
-        if (core_id < m_config->n_simt_cores_per_cluster) {
-            return m_core[core_id];
-        }
-        return nullptr;
-    }
   simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
-                    const shader_core_config *config,
+                    shader_core_config *config,
                     const memory_config *mem_config, shader_core_stats *stats,
                     memory_stats_t *mstats);
 
   void core_cycle();
   void icnt_cycle();
-
+  shader_core_ctx* get_core(unsigned core_id) const {
+        if (core_id < m_config->n_simt_cores_per_cluster) {
+            return m_core[core_id];
+        }
+        return nullptr;
+    }
   void reinit();
   unsigned issue_block2core();
   void cache_flush();
@@ -2844,7 +2863,7 @@ class simt_core_cluster {
  protected:
   unsigned m_cluster_id;
   gpgpu_sim *m_gpu;
-  const shader_core_config *m_config;
+  shader_core_config *m_config;
   shader_core_stats *m_stats;
   memory_stats_t *m_memory_stats;
   shader_core_ctx **m_core;
@@ -2858,7 +2877,7 @@ class simt_core_cluster {
 class exec_simt_core_cluster : public simt_core_cluster {
  public:
   exec_simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
-                         const shader_core_config *config,
+                         shader_core_config *config,
                          const memory_config *mem_config,
                          class shader_core_stats *stats,
                          class memory_stats_t *mstats)
@@ -2876,7 +2895,7 @@ class exec_simt_core_cluster : public simt_core_cluster {
 class sst_simt_core_cluster : public exec_simt_core_cluster {
  public:
   sst_simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
-                        const shader_core_config *config,
+                        shader_core_config *config,
                         const memory_config *mem_config,
                         class shader_core_stats *stats,
                         class memory_stats_t *mstats)
