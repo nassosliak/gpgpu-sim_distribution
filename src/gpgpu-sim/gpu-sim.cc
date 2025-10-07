@@ -1327,8 +1327,7 @@ void gpgpu_sim::print_stats(unsigned long long streamID) {
 
 void gpgpu_sim::deadlock_check() {
   if (m_config.gpu_deadlock_detect && gpu_deadlock) {
-    // Add this line:
-    this->dump_pipeline((0x40|0x4|0x1), 0, 0);
+
     fflush(stdout);
     printf(
         "\n\nGPGPU-Sim uArch: ERROR ** deadlock detected: last writeback core "
