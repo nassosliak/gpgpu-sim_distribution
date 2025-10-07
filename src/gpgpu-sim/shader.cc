@@ -5039,12 +5039,16 @@ bool shader_core_ctx::execution_pipeline_drained() {
         }
     }
     for (size_t i = 0; i < m_fu.size(); ++i) {
-      if (m_fu[i] == m_ldst_unit) continue;
+      // if (m_fu[i] == m_ldst_unit) continue;
         if (m_fu[i] && m_fu[i]->is_occupied()) {
             printf("Core %u: FU %zu (%s) is occupied\n", m_sid, i, m_fu[i]->get_name());
             return false;
         } 
     }
+  // for (unsigned i = 0; i < m_config->n_thread_per_shader; ++i) {
+  //       if (m_threadState[i].m_active)
+  //           return false;
+  //   }
     return true;
 }
 
@@ -5057,88 +5061,6 @@ void shader_core_ctx::destroy_schedulers() {
   schedulers.clear();
 }
 
-void shader_core_ctx::add_schedulers(const ShaderCoreConfigValues& reconfig) {
- // Add additional schedulers up to the (possibly increased) configured count.
-  // We do not redistribute already supervised warps to avoid perturbing
-  // in–flight scheduling state; new schedulers will become active for newly
-  // created warps (or remain idle if no new warps appear).
-  if (schedulers.size() >= m_config->gpgpu_num_sched_per_core) return;
-
-  // Determine scheduler type from the config string (replicates logic in create_schedulers()).
-  std::string sched_config = m_config->gpgpu_scheduler_string;
-  const concrete_scheduler scheduler =
-      sched_config.find("lrr") != std::string::npos ? CONCRETE_SCHEDULER_LRR
-      : sched_config.find("two_level_active") != std::string::npos
-            ? CONCRETE_SCHEDULER_TWO_LEVEL_ACTIVE
-      : sched_config.find("gto") != std::string::npos ? CONCRETE_SCHEDULER_GTO
-      : sched_config.find("rrr") != std::string::npos ? CONCRETE_SCHEDULER_RRR
-      : sched_config.find("old") != std::string::npos
-            ? CONCRETE_SCHEDULER_OLDEST_FIRST
-      : sched_config.find("warp_limiting") != std::string::npos
-            ? CONCRETE_SCHEDULER_WARP_LIMITING
-            : NUM_CONCRETE_SCHEDULERS;
-  assert(scheduler != NUM_CONCRETE_SCHEDULERS);
-
-  unsigned current = schedulers.size();
-  for (unsigned i = current; i < m_config->gpgpu_num_sched_per_core; ++i) {
-    switch (scheduler) {
-      case CONCRETE_SCHEDULER_LRR:
-        schedulers.push_back(new lrr_scheduler(
-            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
-            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
-            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
-            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
-            &m_pipeline_reg[ID_OC_MEM], i));
-        break;
-      case CONCRETE_SCHEDULER_TWO_LEVEL_ACTIVE:
-        schedulers.push_back(new two_level_active_scheduler(
-            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
-            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
-            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
-            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
-            &m_pipeline_reg[ID_OC_MEM], i, m_config->gpgpu_scheduler_string));
-        break;
-      case CONCRETE_SCHEDULER_GTO:
-        schedulers.push_back(new gto_scheduler(
-            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
-            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
-            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
-            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
-            &m_pipeline_reg[ID_OC_MEM], i));
-        break;
-      case CONCRETE_SCHEDULER_RRR:
-        schedulers.push_back(new rrr_scheduler(
-            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
-            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
-            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
-            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
-            &m_pipeline_reg[ID_OC_MEM], i));
-        break;
-      case CONCRETE_SCHEDULER_OLDEST_FIRST:
-        schedulers.push_back(new oldest_scheduler(
-            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
-            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
-            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
-            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
-            &m_pipeline_reg[ID_OC_MEM], i));
-        break;
-      case CONCRETE_SCHEDULER_WARP_LIMITING:
-        schedulers.push_back(new swl_scheduler(
-            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
-            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
-            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
-            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
-            &m_pipeline_reg[ID_OC_MEM], i, m_config->gpgpu_scheduler_string));
-        break;
-      default:
-        abort();
-    };
-  }
-
-  // For newly added schedulers we still need to register supervised warps.
-  // Simple policy: do nothing (leave empty) to avoid reassignment mid-flight.
-  // Optionally could rebalance here if dispatch is stalled and pipeline drained.
-}
 
 void shader_core_ctx::destroy_functional_units() {
   //ToDo
@@ -5162,176 +5084,16 @@ void shader_core_ctx::destroy_functional_units() {
   m_num_function_units = 0;
 }
 
-void shader_core_ctx::create_functional_units(const ShaderCoreConfigValues& new_values) {
-  // Use values from new_values, not m_config
-  m_num_function_units =
-      new_values.gpgpu_num_sp_units + new_values.gpgpu_num_dp_units +
-      new_values.gpgpu_num_sfu_units + new_values.gpgpu_num_tensor_core_units +
-      new_values.gpgpu_num_int_units +
-      m_config->m_specialized_unit_num + // specialized_unit_num is not in new_values
-      1;  // +1 for ldst_unit
 
-  // Recreate result buses
-  num_result_bus = m_config_pipe_widths[EX_WB]; // use dynamic pipeline widths
-  for (unsigned i = 0; i < num_result_bus; i++) {
-    m_result_bus.push_back(new std::bitset<MAX_ALU_LATENCY>());
-  }
 
-  // Create SP units
-  for (unsigned k = 0; k < new_values.gpgpu_num_sp_units; k++) {
-    m_fu.push_back(new sp_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
-    m_dispatch_port.push_back(ID_OC_SP);
-    m_issue_port.push_back(OC_EX_SP);
-  }
 
-  // Create DP units
-  for (unsigned k = 0; k < new_values.gpgpu_num_dp_units; k++) {
-    m_fu.push_back(new dp_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
-    m_dispatch_port.push_back(ID_OC_DP);
-    m_issue_port.push_back(OC_EX_DP);
-  }
-
-  // Create INT units
-  for (unsigned k = 0; k < new_values.gpgpu_num_int_units; k++) {
-    m_fu.push_back(new int_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
-    m_dispatch_port.push_back(ID_OC_INT);
-    m_issue_port.push_back(OC_EX_INT);
-  }
-
-  // Create SFU units
-  for (unsigned k = 0; k < new_values.gpgpu_num_sfu_units; k++) {
-    m_fu.push_back(new sfu(&m_pipeline_reg[EX_WB], m_config, this, k));
-    m_dispatch_port.push_back(ID_OC_SFU);
-    m_issue_port.push_back(OC_EX_SFU);
-  }
-
-  // Create tensor core units
-  for (unsigned k = 0; k < new_values.gpgpu_num_tensor_core_units; k++) {
-    m_fu.push_back(new tensor_core(&m_pipeline_reg[EX_WB], m_config, this, k));
-    m_dispatch_port.push_back(ID_OC_TENSOR_CORE);
-    m_issue_port.push_back(OC_EX_TENSOR_CORE);
-  }
-
-  // Create specialized units (still use m_config for specialized units)
-  for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
-    for (unsigned k = 0; k < m_config->m_specialized_unit[j].num_units; k++) {
-      m_fu.push_back(new specialized_unit(
-          &m_pipeline_reg[EX_WB], m_config, this, j,
-          m_config->m_specialized_unit[j].name,
-          m_config->m_specialized_unit[j].latency,
-          k));
-      m_dispatch_port.push_back(m_config->m_specialized_unit[j].ID_OC_SPEC_ID);
-      m_issue_port.push_back(m_config->m_specialized_unit[j].OC_EX_SPEC_ID);
-    }
-  }
-
-  // Re-add LDST unit (which we don't recreate)
-  if (m_ldst_unit) {
-    m_fu.push_back(m_ldst_unit);
-    m_dispatch_port.push_back(ID_OC_MEM);
-    m_issue_port.push_back(OC_EX_MEM);
-  }
-
-}
-void shader_core_ctx::add_functional_units(const ShaderCoreConfigValues& new_values) {
-  //ToDo
-  //Add functional units
-  unsigned current_sp = 0, current_dp = 0, current_int = 0, current_sfu = 0, current_tensor = 0;
-  
-  for (unsigned i = 0; i < m_fu.size(); i++) {
-    if (dynamic_cast<sp_unit*>(m_fu[i])) {
-      current_sp++;
-    } else if (dynamic_cast<dp_unit*>(m_fu[i])) {
-      current_dp++;
-    } else if (dynamic_cast<int_unit*>(m_fu[i])) {
-      current_int++;
-    } else if (dynamic_cast<sfu*>(m_fu[i])) {
-      current_sfu++;
-    } else if (dynamic_cast<tensor_core*>(m_fu[i])) {
-      current_tensor++;
-    }
-  }
-  
-  // Add additional SP units
-  for (unsigned k = current_sp; k < new_values.gpgpu_num_sp_units; k++) {
-    m_fu.push_back(new sp_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
-    m_dispatch_port.push_back(ID_OC_SP);
-    m_issue_port.push_back(OC_EX_SP);
-  }
-
-  // Add additional DP units
-  for (unsigned k = current_dp; k < new_values.gpgpu_num_dp_units; k++) {
-    m_fu.push_back(new dp_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
-    m_dispatch_port.push_back(ID_OC_DP);
-    m_issue_port.push_back(OC_EX_DP);
-  }
-
-  // Add additional INT units
-  for (unsigned k = current_int; k < new_values.gpgpu_num_int_units; k++) {
-    m_fu.push_back(new int_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
-    m_dispatch_port.push_back(ID_OC_INT);
-    m_issue_port.push_back(OC_EX_INT);
-  }
-
-  // Add additional SFU units
-  for (unsigned k = current_sfu; k < new_values.gpgpu_num_sfu_units; k++) {
-    m_fu.push_back(new sfu(&m_pipeline_reg[EX_WB], m_config, this, k));
-    m_dispatch_port.push_back(ID_OC_SFU);
-    m_issue_port.push_back(OC_EX_SFU);
-  }
-
-  // Add additional tensor core units
-  for (unsigned k = current_tensor; k < new_values.gpgpu_num_tensor_core_units; k++) {
-    m_fu.push_back(new tensor_core(&m_pipeline_reg[EX_WB], m_config, this, k));
-    m_dispatch_port.push_back(ID_OC_TENSOR_CORE);
-    m_issue_port.push_back(OC_EX_TENSOR_CORE);
-  }
-
-  // Update function unit count
-  m_num_function_units = m_fu.size();
-  
-  // Update configuration with new values
-  m_config->gpgpu_num_sp_units = new_values.gpgpu_num_sp_units;
-  m_config->gpgpu_num_dp_units = new_values.gpgpu_num_dp_units;
-  m_config->gpgpu_num_int_units = new_values.gpgpu_num_int_units;
-  m_config->gpgpu_num_sfu_units = new_values.gpgpu_num_sfu_units;
-  m_config->gpgpu_num_tensor_core_units = new_values.gpgpu_num_tensor_core_units;
-  m_config->gpgpu_num_sched_per_core = new_values.gpgpu_num_sched_per_core;
-  //pipeline reg widths
-  
-
-  parse_pipeline_widths(new_values.gpgpu_pipeline_widths);
-}
-
-void shader_core_ctx::increasing_reconfiguration(const ShaderCoreConfigValues& new_values, const ExecUnitReconfig& reconfig) {
-  //ToDo 
-  //Add the remaining fu and schedulers to the corresponding objects
-  m_config->gpgpu_num_dp_units = new_values.gpgpu_num_dp_units;
-  m_config->gpgpu_num_int_units = new_values.gpgpu_num_int_units;
-  m_config->gpgpu_num_sfu_units = new_values.gpgpu_num_sfu_units;
-  m_config->gpgpu_num_tensor_core_units = new_values.gpgpu_num_tensor_core_units;
-  m_config->gpgpu_num_sched_per_core = new_values.gpgpu_num_sched_per_core;
-
-  // Parse and store pipeline widths
-  parse_pipeline_widths(new_values.gpgpu_pipeline_widths);
-
-  // Add new functional units and schedulers
-  add_functional_units(new_values);
-  add_schedulers(new_values);
-  
-  // Log the reconfiguration
-  printf("Completed increasing reconfiguration to: SP=%u, SFU=%u, DP=%u, INT=%u, Tensor=%u, Schedulers=%u\n",
-         m_config->gpgpu_num_sp_units, m_config->gpgpu_num_sfu_units,
-         m_config->gpgpu_num_dp_units, m_config->gpgpu_num_int_units,
-         m_config->gpgpu_num_tensor_core_units, m_config->gpgpu_num_sched_per_core);
-}
 
 
 void shader_core_ctx::cleanup_operand_collector() {
   // Use the public cleanup method instead of accessing private members
   m_operand_collector.cleanup_for_reconfiguration();
 }
-void shader_core_ctx::decreasing_reconfiguration(const ShaderCoreConfigValues& new_values, const ExecUnitReconfig& reconfig) {
+void shader_core_ctx::perform_reconfiguration(const ShaderCoreConfigValues& new_values, const ExecUnitReconfig& reconfig) {
   //ToDo
   //Use create_exec_pipeline(), create_schedulers() and other useful functions to recreate objects with new number of fu
   m_config->gpgpu_num_sp_units = new_values.gpgpu_num_sp_units;
@@ -5354,20 +5116,25 @@ for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
   destroy_schedulers();
   
   destroy_functional_units();
-
-  cleanup_operand_collector();
+  ldst_unit* old_ldst = m_ldst_unit;
+  m_ldst_unit = NULL;
+  
   //delete pipeline
   m_pipeline_reg.clear();
   m_specilized_dispatch_reg.clear();
+  cleanup_operand_collector();
   //delete opnd collector (m_warp == null)
   // m_operand_collector = opndcoll_rfu_t();
-  create_front_pipeline();
-  create_exec_pipeline();
-  create_functional_units(new_values);
     if (m_scoreboard) {
     delete m_scoreboard;
   }
+  create_front_pipeline();
   create_schedulers();
+    if (old_ldst) {
+    delete old_ldst;
+  }
+  //also fu here
+  create_exec_pipeline();
 
   // Log the reconfiguration
   printf("Completed decreasing reconfiguration to: SP=%u, SFU=%u, DP=%u, INT=%u, Tensor=%u, Schedulers=%u\n",
@@ -5482,11 +5249,11 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
         }
         drain_cycles++;
         if (!all_cores_drained) {
-          if(drain_cycles == 200) {
-            printf("ERROR: Timeout waiting for pipeline drain after %u cycles. Forcing reconfiguration anyway.\n", drain_cycles);
-            abort();
-            return;
-          }
+          // if(drain_cycles == 200) {
+          //   printf("ERROR: Timeout waiting for pipeline drain after %u cycles. Forcing reconfiguration anyway.\n", drain_cycles);
+          //   abort();
+          //   return;
+          // }
           printf("Waiting for pipeline drain... Cycle %u, Drained cores: %u\n",
                        drain_cycles, drained_cores);
             
@@ -5499,7 +5266,7 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
             for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
                 shader_core_ctx* core = cluster->get_core(core_id);
                 if (core) {
-                    core->decreasing_reconfiguration(new_values, reconfig);
+                    core->perform_reconfiguration(new_values, reconfig);
                    
                 }
             }
@@ -5518,26 +5285,7 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
           printf("ERROR: No active threads but CTAs are still active!\n");
         }
       }
-//Increasing Reconfiguration
-// else{
-//   printf("========================================================\n");
-//             printf("⚡ RECONFIGURATION TRIGGERED at instruction %llu\n", global_inst_count);
-//             printf("⚡ Num Units: %u\n",
-//                    new_values.gpgpu_num_sp_units);
-//   for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
-//             simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
-//             for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
-//                 shader_core_ctx* core = cluster->get_core(core_id);
-//                 if (core) {
-//                     core->increasing_reconfiguration(new_values, reconfig);
-//                 }
-//             }
-//           }
-//         m_current_config++;
-//         printf("✓ Increasing Reconfiguration completed on all cores (no drain)\n");
-//         printf("========================================================\n\n");
-//     }
-// }
+
 
 
 /////////////////////////////////////////////////////////////////////////////

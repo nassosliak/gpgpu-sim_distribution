@@ -1401,7 +1401,6 @@ class ldst_unit : public pipelined_simd_unit {
   virtual void issue(register_set &inst);
   bool is_issue_partitioned() { return false; }
   virtual void cycle();
-
   void fill(mem_fetch *mf);
   void flush();
   void invalidate();
@@ -2117,14 +2116,10 @@ class shader_core_ctx : public core_t {
   void check_exec_unit_reconfiguration();
   bool m_reconfig_dispatch_stall;
   unsigned m_current_config; 
-  void add_functional_units(const ShaderCoreConfigValues& reconfig);
   void destroy_functional_units();
   bool execution_pipeline_drained();
   void destroy_schedulers();
-  void add_schedulers(const ShaderCoreConfigValues& reconfig);
-  void create_functional_units(const ShaderCoreConfigValues& reconfig);
-  void increasing_reconfiguration(const ShaderCoreConfigValues& reconfig, const ExecUnitReconfig& execunit_reconfig);
-  void decreasing_reconfiguration(const ShaderCoreConfigValues& reconfig, const ExecUnitReconfig& execunit_reconfig);
+  void perform_reconfiguration(const ShaderCoreConfigValues& reconfig, const ExecUnitReconfig& execunit_reconfig);
   bool is_dispatch_stall_active() const { return m_reconfig_dispatch_stall; }
 
   int m_config_pipe_widths[N_PIPELINE_STAGES];
