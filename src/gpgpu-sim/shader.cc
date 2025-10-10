@@ -5077,6 +5077,91 @@ bool shader_core_ctx::execution_pipeline_drained() {
   
   return true;
 }
+
+void shader_core_ctx::create_schedulers_exec() {
+  // m_scoreboard = new Scoreboard(m_sid, m_config->max_warps_per_shader, m_gpu);
+
+  // scedulers
+  // must currently occur after all inputs have been initialized.
+  std::string sched_config = m_config->gpgpu_scheduler_string;
+  const concrete_scheduler scheduler =
+      sched_config.find("lrr") != std::string::npos ? CONCRETE_SCHEDULER_LRR
+      : sched_config.find("two_level_active") != std::string::npos
+          ? CONCRETE_SCHEDULER_TWO_LEVEL_ACTIVE
+      : sched_config.find("gto") != std::string::npos ? CONCRETE_SCHEDULER_GTO
+      : sched_config.find("rrr") != std::string::npos ? CONCRETE_SCHEDULER_RRR
+      : sched_config.find("old") != std::string::npos
+          ? CONCRETE_SCHEDULER_OLDEST_FIRST
+      : sched_config.find("warp_limiting") != std::string::npos
+          ? CONCRETE_SCHEDULER_WARP_LIMITING
+          : NUM_CONCRETE_SCHEDULERS;
+  assert(scheduler != NUM_CONCRETE_SCHEDULERS);
+
+  for (unsigned i = 0; i < m_config->gpgpu_num_sched_per_core; i++) {
+    switch (scheduler) {
+      case CONCRETE_SCHEDULER_LRR:
+        schedulers.push_back(new lrr_scheduler(
+            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
+            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
+            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
+            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
+            &m_pipeline_reg[ID_OC_MEM], i));
+        break;
+      case CONCRETE_SCHEDULER_TWO_LEVEL_ACTIVE:
+        schedulers.push_back(new two_level_active_scheduler(
+            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
+            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
+            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
+            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
+            &m_pipeline_reg[ID_OC_MEM], i, m_config->gpgpu_scheduler_string));
+        break;
+      case CONCRETE_SCHEDULER_GTO:
+        schedulers.push_back(new gto_scheduler(
+            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
+            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
+            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
+            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
+            &m_pipeline_reg[ID_OC_MEM], i));
+        break;
+      case CONCRETE_SCHEDULER_RRR:
+        schedulers.push_back(new rrr_scheduler(
+            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
+            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
+            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
+            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
+            &m_pipeline_reg[ID_OC_MEM], i));
+        break;
+      case CONCRETE_SCHEDULER_OLDEST_FIRST:
+        schedulers.push_back(new oldest_scheduler(
+            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
+            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
+            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
+            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
+            &m_pipeline_reg[ID_OC_MEM], i));
+        break;
+      case CONCRETE_SCHEDULER_WARP_LIMITING:
+        schedulers.push_back(new swl_scheduler(
+            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
+            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
+            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
+            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
+            &m_pipeline_reg[ID_OC_MEM], i, m_config->gpgpu_scheduler_string));
+        break;
+      default:
+        abort();
+    };
+  }
+
+  for (unsigned i = 0; i < m_warp.size(); i++) {
+    // distribute i's evenly though schedulers;
+    schedulers[i % m_config->gpgpu_num_sched_per_core]->add_supervised_warp_id(
+        i);
+  }
+  for (unsigned i = 0; i < m_config->gpgpu_num_sched_per_core; ++i) {
+    schedulers[i]->done_adding_supervised_warps();
+  }
+}
+
 void shader_core_ctx::create_front_pipeline_exec() {
   // pipeline_stages is the sum of normal pipeline stages and specialized_unit
   // stages * 2 (for ID and EX)
@@ -5429,13 +5514,12 @@ for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
   m_pipeline_reg.clear();
   m_specilized_dispatch_reg.clear();
   cleanup_operand_collector();
-  //delete opnd collector (m_warp == null)
-  // m_operand_collector = opndcoll_rfu_t();
-    if (m_scoreboard) {
-    delete m_scoreboard;
-  }
+
+  //   if (m_scoreboard) {
+  //   delete m_scoreboard;
+  // }
   create_front_pipeline_exec();
-  create_schedulers();
+  create_schedulers_exec();
   //   if (old_ldst) {
   //   delete old_ldst;
   // }

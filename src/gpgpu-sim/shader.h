@@ -2505,6 +2505,7 @@ class shader_core_ctx : public core_t {
 
   void create_front_pipeline();
   void create_schedulers();
+  void create_schedulers_exec();
   void create_exec_pipeline();
   void create_exec_pipeline_exec();
   void create_front_pipeline_exec();
