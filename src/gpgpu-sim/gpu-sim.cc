@@ -1534,7 +1534,7 @@ void gpgpu_sim::gpu_print_stat(unsigned long long streamID) {
       MAX(curr_time - gpgpu_ctx->the_gpgpusim->g_simulation_starttime, 1);
   printf("gpu_total_sim_rate=%u\n",
          (unsigned)((gpu_tot_sim_insn + gpu_sim_insn) / elapsed_time));
-
+  shader_print_cache_stats(stdout);
   shader_print_l1_miss_stat( stdout );
 
   cache_stats core_cache_stats;
@@ -2229,8 +2229,8 @@ void gpgpu_sim::cycle() {
       if (m_config.gpgpu_runtime_stat &&
           (m_config.gpu_runtime_stat_flag != 0)) {
         if (m_config.gpu_runtime_stat_flag & GPU_RSTAT_BW_STAT) {
-          // for (unsigned i = 0; i < m_memory_config->m_n_mem; i++)
-          //   m_memory_partition_unit[i]->print_stat(stdout);
+          for (unsigned i = 0; i < m_memory_config->m_n_mem; i++)
+            m_memory_partition_unit[i]->print_stat(stdout);
           printf("maxmrqlatency = %d \n", m_memory_stats->max_mrq_latency);
           printf("maxmflatency = %d \n", m_memory_stats->max_mf_latency);
         }

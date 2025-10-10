@@ -181,12 +181,6 @@ void shader_core_ctx::create_front_pipeline() {
   m_L1I = new read_only_cache(name, m_config->m_L1I_config, m_sid,
                               get_shader_instruction_cache_id(), m_icnt,
                               IN_L1I_MISS_QUEUE, OTHER_GPU_CACHE, m_gpu);
-  for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
-    printf("Scheduler count: %u, Specialized unit %u width: %u\n",
-           m_config->gpgpu_num_sched_per_core,
-           j,
-           m_config->m_specialized_unit[j].id_oc_spec_reg_width);
-}
 }
 
 void shader_core_ctx::create_schedulers() {
@@ -1275,6 +1269,9 @@ void scheduler_unit::order_by_priority(
 }
 
 void scheduler_unit::cycle() {
+  if (m_shader->is_dispatch_stall_active()) {
+    return;  // Don't schedule new instructions during reconfiguration
+  }
   SCHED_DPRINTF("scheduler_unit::cycle()\n");
   bool valid_inst =
       false;  // there was one warp with a valid instruction to issue (didn't
@@ -3680,13 +3677,7 @@ void shader_core_config::set_pipeline_latency() {
 }
 
 void shader_core_ctx::cycle() {
-  //check if reconfiguration is enabled
-  // if (!m_config->m_dynamic_reconfig_enabled) {
-  //   if (m_sid == 0) {
-  //        check_exec_unit_reconfiguration();
-  //   }
-  // }
-  
+
   if (!isactive() && get_not_completed() == 0) return;
 
   m_stats->shader_cycles[m_sid]++;
@@ -4316,6 +4307,9 @@ void opndcoll_rfu_t::dispatch_ready_cu() {
 }
 
 void opndcoll_rfu_t::allocate_cu(unsigned port_num) {
+  // if (m_shader->is_dispatch_stall_active()) {
+  //   return;
+  // }
   input_port_t &inp = m_in_ports[port_num];
   for (unsigned i = 0; i < inp.m_in.size(); i++) {
     if ((*inp.m_in[i]).has_ready()) {
@@ -4467,9 +4461,10 @@ bool opndcoll_rfu_t::collector_unit_t::allocate(register_set *pipeline_reg_set,
 }
 
 void opndcoll_rfu_t::collector_unit_t::dispatch() {
-  if (m_rfu->shader_core()->is_dispatch_stall_active()) {
-    return;
-  }
+  // if (m_rfu->shader_core()->is_dispatch_stall_active()) {
+  //   printf("CU%d dispatch stalled\n", m_cuid);
+  //   return;
+  // }
   assert(m_not_ready.none());
   m_output_register->move_in(m_sub_core_model, m_reg_id, m_warp);
   m_free = true;
@@ -4976,7 +4971,7 @@ while (std::getline(config_file, line)) {
     }
 }
     config_file.close();
-    printf("Loaded %zu reconfiguration points\n", m_reconfig_points.size());
+    //printf("Loaded %zu reconfiguration points\n", m_reconfig_points.size());
 }
 
 ShaderCoreConfigValues parse_shader_core_config(const std::string& config_path) {
@@ -5031,27 +5026,338 @@ void shader_core_ctx::parse_pipeline_widths(const std::string& widths_str) {
   delete[] tokd;
 }
 
+// bool shader_core_ctx::execution_pipeline_drained() {
+//   for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
+//         if (!m_pipeline_reg[i].empty()) {
+//             printf("Core %u: Pipeline reg %zu not empty\n", m_sid, i);
+//             return false;
+//         }
+//     }
+//     for (size_t i = 0; i < m_fu.size(); ++i) {
+//       // if (m_fu[i] == m_ldst_unit) continue;
+//         if (m_fu[i] && m_fu[i]->is_occupied()) {
+//             printf("SM %u: FU %zu (%s) is occupied\n", m_sid, i, m_fu[i]->get_name());
+//             return false;
+//         } 
+//     }
+//   // for (unsigned i = 0; i < m_config->n_thread_per_shader; ++i) {
+//   //       if (m_threadState[i].m_active)
+//   //           return false;
+//   //   }
+//     return true;
+// }
 bool shader_core_ctx::execution_pipeline_drained() {
+  // Check pipeline registers
   for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
-        if (!m_pipeline_reg[i].empty()) {
-            printf("Core %u: Pipeline reg %zu not empty\n", m_sid, i);
-            return false;
-        }
+    if (!m_pipeline_reg[i].empty()) {
+      printf("Core %u: Pipeline reg %zu not empty\n", m_sid, i);
+      return false;
     }
-    for (size_t i = 0; i < m_fu.size(); ++i) {
-      // if (m_fu[i] == m_ldst_unit) continue;
-        if (m_fu[i] && m_fu[i]->is_occupied()) {
-            printf("Core %u: FU %zu (%s) is occupied\n", m_sid, i, m_fu[i]->get_name());
-            return false;
-        } 
-    }
-  // for (unsigned i = 0; i < m_config->n_thread_per_shader; ++i) {
-  //       if (m_threadState[i].m_active)
-  //           return false;
+  }
+  
+  // Check functional units (excluding ldst_unit which needs special handling)
+  for (size_t i = 0; i < m_fu.size(); ++i) {
+    if (m_fu[i] == m_ldst_unit) continue; // Skip ldst_unit, check separately
+    
+    if (m_fu[i] && m_fu[i]->is_occupied()) {
+      printf("SM %u: FU %zu (%s) is occupied\n", m_sid, i, m_fu[i]->get_name());
+      return false;
+    } 
+  }
+  
+  // Special comprehensive check for ldst_unit
+  // if (m_ldst_unit) {
+  //   // Check if dispatch register is occupied
+  //   if (m_ldst_unit->is_occupied()) {
+  //     printf("SM %u: LDST dispatch register is occupied\n", m_sid);
+  //     return false;
   //   }
-    return true;
+    
+  // }
+  
+  return true;
+}
+void shader_core_ctx::create_front_pipeline_exec() {
+  // pipeline_stages is the sum of normal pipeline stages and specialized_unit
+  // stages * 2 (for ID and EX)
+  unsigned total_pipeline_stages =
+      N_PIPELINE_STAGES + m_config->m_specialized_unit.size() * 2;
+  m_pipeline_reg.reserve(total_pipeline_stages);
+  for (int j = 0; j < N_PIPELINE_STAGES; j++) {
+    m_pipeline_reg.push_back(
+        register_set(m_config->pipe_widths[j], pipeline_stage_name_decode[j]));
+  }
+  for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
+    m_pipeline_reg.push_back(
+        register_set(m_config->m_specialized_unit[j].id_oc_spec_reg_width,
+                     m_config->m_specialized_unit[j].name));
+    m_config->m_specialized_unit[j].ID_OC_SPEC_ID = m_pipeline_reg.size() - 1;
+    m_specilized_dispatch_reg.push_back(
+        &m_pipeline_reg[m_pipeline_reg.size() - 1]);
+  }
+  for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
+    m_pipeline_reg.push_back(
+        register_set(m_config->m_specialized_unit[j].oc_ex_spec_reg_width,
+                     m_config->m_specialized_unit[j].name));
+    m_config->m_specialized_unit[j].OC_EX_SPEC_ID = m_pipeline_reg.size() - 1;
+  }
+
+  if (m_config->sub_core_model) {
+    // in subcore model, each scheduler should has its own issue register, so
+    // ensure num scheduler = reg width
+    assert(m_config->gpgpu_num_sched_per_core ==
+           m_pipeline_reg[ID_OC_SP].get_size());
+    assert(m_config->gpgpu_num_sched_per_core ==
+           m_pipeline_reg[ID_OC_SFU].get_size());
+    assert(m_config->gpgpu_num_sched_per_core ==
+           m_pipeline_reg[ID_OC_MEM].get_size());
+    if (m_config->gpgpu_tensor_core_avail)
+      assert(m_config->gpgpu_num_sched_per_core ==
+             m_pipeline_reg[ID_OC_TENSOR_CORE].get_size());
+    if (m_config->gpgpu_num_dp_units > 0)
+      assert(m_config->gpgpu_num_sched_per_core ==
+             m_pipeline_reg[ID_OC_DP].get_size());
+    if (m_config->gpgpu_num_int_units > 0)
+      assert(m_config->gpgpu_num_sched_per_core ==
+             m_pipeline_reg[ID_OC_INT].get_size());
+    for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
+      if (m_config->m_specialized_unit[j].num_units > 0)
+        assert(m_config->gpgpu_num_sched_per_core ==
+               m_config->m_specialized_unit[j].id_oc_spec_reg_width);
+    }
+  }
+
+//   m_threadState = (thread_ctx_t *)calloc(sizeof(thread_ctx_t),
+//                                          m_config->n_thread_per_shader);
+
+//   m_not_completed = 0;
+//   m_active_threads.reset();
+//   m_n_active_cta = 0;
+//   for (unsigned i = 0; i < MAX_CTA_PER_SHADER; i++) m_cta_status[i] = 0;
+//   for (unsigned i = 0; i < m_config->n_thread_per_shader; i++) {
+//     m_thread[i] = NULL;
+//     m_threadState[i].m_cta_id = -1;
+//     m_threadState[i].m_active = false;
+//   }
+
+//   // m_icnt = new shader_memory_interface(this,cluster);
+//   if (m_memory_config->SST_mode) {
+//     m_icnt = new sst_memory_interface(
+//         this, static_cast<sst_simt_core_cluster *>(m_cluster));
+//   } else if (m_config->gpgpu_perfect_mem) {
+//     m_icnt = new perfect_memory_interface(this, m_cluster);
+//   } else {
+//     m_icnt = new shader_memory_interface(this, m_cluster);
+//   }
+//   m_mem_fetch_allocator =
+//       new shader_core_mem_fetch_allocator(m_sid, m_tpc, m_memory_config);
+
+//   // fetch
+//   m_last_warp_fetched = 0;
+
+// #define STRSIZE 1024
+//   char name[STRSIZE];
+//   snprintf(name, STRSIZE, "L1I_%03d", m_sid);
+//   m_L1I = new read_only_cache(name, m_config->m_L1I_config, m_sid,
+//                               get_shader_instruction_cache_id(), m_icnt,
+//                               IN_L1I_MISS_QUEUE, OTHER_GPU_CACHE, m_gpu);
 }
 
+void shader_core_ctx::create_exec_pipeline_exec() {
+  // op collector configuration
+  enum { SP_CUS, DP_CUS, SFU_CUS, TENSOR_CORE_CUS, INT_CUS, MEM_CUS, GEN_CUS };
+
+  opndcoll_rfu_t::port_vector_t in_ports;
+  opndcoll_rfu_t::port_vector_t out_ports;
+  opndcoll_rfu_t::uint_vector_t cu_sets;
+
+  // configure generic collectors
+  m_operand_collector.add_cu_set(
+      GEN_CUS, m_config->gpgpu_operand_collector_num_units_gen,
+      m_config->gpgpu_operand_collector_num_out_ports_gen);
+
+  for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_gen;
+       i++) {
+    in_ports.push_back(&m_pipeline_reg[ID_OC_SP]);
+    in_ports.push_back(&m_pipeline_reg[ID_OC_SFU]);
+    in_ports.push_back(&m_pipeline_reg[ID_OC_MEM]);
+    out_ports.push_back(&m_pipeline_reg[OC_EX_SP]);
+    out_ports.push_back(&m_pipeline_reg[OC_EX_SFU]);
+    out_ports.push_back(&m_pipeline_reg[OC_EX_MEM]);
+    if (m_config->gpgpu_tensor_core_avail) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_TENSOR_CORE]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_TENSOR_CORE]);
+    }
+    if (m_config->gpgpu_num_dp_units > 0) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_DP]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_DP]);
+    }
+    if (m_config->gpgpu_num_int_units > 0) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_INT]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_INT]);
+    }
+    if (m_config->m_specialized_unit.size() > 0) {
+      for (unsigned j = 0; j < m_config->m_specialized_unit.size(); ++j) {
+        in_ports.push_back(
+            &m_pipeline_reg[m_config->m_specialized_unit[j].ID_OC_SPEC_ID]);
+        out_ports.push_back(
+            &m_pipeline_reg[m_config->m_specialized_unit[j].OC_EX_SPEC_ID]);
+      }
+    }
+    cu_sets.push_back((unsigned)GEN_CUS);
+    m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+    in_ports.clear(), out_ports.clear(), cu_sets.clear();
+  }
+
+  if (m_config->enable_specialized_operand_collector) {
+    m_operand_collector.add_cu_set(
+        SP_CUS, m_config->gpgpu_operand_collector_num_units_sp,
+        m_config->gpgpu_operand_collector_num_out_ports_sp);
+    m_operand_collector.add_cu_set(
+        DP_CUS, m_config->gpgpu_operand_collector_num_units_dp,
+        m_config->gpgpu_operand_collector_num_out_ports_dp);
+    m_operand_collector.add_cu_set(
+        TENSOR_CORE_CUS,
+        m_config->gpgpu_operand_collector_num_units_tensor_core,
+        m_config->gpgpu_operand_collector_num_out_ports_tensor_core);
+    m_operand_collector.add_cu_set(
+        SFU_CUS, m_config->gpgpu_operand_collector_num_units_sfu,
+        m_config->gpgpu_operand_collector_num_out_ports_sfu);
+    m_operand_collector.add_cu_set(
+        MEM_CUS, m_config->gpgpu_operand_collector_num_units_mem,
+        m_config->gpgpu_operand_collector_num_out_ports_mem);
+    m_operand_collector.add_cu_set(
+        INT_CUS, m_config->gpgpu_operand_collector_num_units_int,
+        m_config->gpgpu_operand_collector_num_out_ports_int);
+
+    for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_sp;
+         i++) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_SP]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_SP]);
+      cu_sets.push_back((unsigned)SP_CUS);
+      cu_sets.push_back((unsigned)GEN_CUS);
+      m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+      in_ports.clear(), out_ports.clear(), cu_sets.clear();
+    }
+
+    for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_dp;
+         i++) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_DP]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_DP]);
+      cu_sets.push_back((unsigned)DP_CUS);
+      cu_sets.push_back((unsigned)GEN_CUS);
+      m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+      in_ports.clear(), out_ports.clear(), cu_sets.clear();
+    }
+
+    for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_sfu;
+         i++) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_SFU]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_SFU]);
+      cu_sets.push_back((unsigned)SFU_CUS);
+      cu_sets.push_back((unsigned)GEN_CUS);
+      m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+      in_ports.clear(), out_ports.clear(), cu_sets.clear();
+    }
+
+    for (unsigned i = 0;
+         i < m_config->gpgpu_operand_collector_num_in_ports_tensor_core; i++) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_TENSOR_CORE]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_TENSOR_CORE]);
+      cu_sets.push_back((unsigned)TENSOR_CORE_CUS);
+      cu_sets.push_back((unsigned)GEN_CUS);
+      m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+      in_ports.clear(), out_ports.clear(), cu_sets.clear();
+    }
+
+    for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_mem;
+         i++) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_MEM]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_MEM]);
+      cu_sets.push_back((unsigned)MEM_CUS);
+      cu_sets.push_back((unsigned)GEN_CUS);
+      m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+      in_ports.clear(), out_ports.clear(), cu_sets.clear();
+    }
+
+    for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_int;
+         i++) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_INT]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_INT]);
+      cu_sets.push_back((unsigned)INT_CUS);
+      cu_sets.push_back((unsigned)GEN_CUS);
+      m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+      in_ports.clear(), out_ports.clear(), cu_sets.clear();
+    }
+  }
+
+  m_operand_collector.init(m_config->gpgpu_num_reg_banks, this);
+
+  m_num_function_units =
+      m_config->gpgpu_num_sp_units + m_config->gpgpu_num_dp_units +
+      m_config->gpgpu_num_sfu_units + m_config->gpgpu_num_tensor_core_units +
+      m_config->gpgpu_num_int_units + m_config->m_specialized_unit_num +
+      1;  // sp_unit, sfu, dp, tensor, int, ldst_unit
+  // m_dispatch_port = new enum pipeline_stage_name_t[ m_num_function_units ];
+  // m_issue_port = new enum pipeline_stage_name_t[ m_num_function_units ];
+
+  // m_fu = new simd_function_unit*[m_num_function_units];
+
+  for (unsigned k = 0; k < m_config->gpgpu_num_sp_units; k++) {
+    m_fu.push_back(new sp_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
+    m_dispatch_port.push_back(ID_OC_SP);
+    m_issue_port.push_back(OC_EX_SP);
+  }
+
+  for (unsigned k = 0; k < m_config->gpgpu_num_dp_units; k++) {
+    m_fu.push_back(new dp_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
+    m_dispatch_port.push_back(ID_OC_DP);
+    m_issue_port.push_back(OC_EX_DP);
+  }
+  for (unsigned k = 0; k < m_config->gpgpu_num_int_units; k++) {
+    m_fu.push_back(new int_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
+    m_dispatch_port.push_back(ID_OC_INT);
+    m_issue_port.push_back(OC_EX_INT);
+  }
+
+  for (unsigned k = 0; k < m_config->gpgpu_num_sfu_units; k++) {
+    m_fu.push_back(new sfu(&m_pipeline_reg[EX_WB], m_config, this, k));
+    m_dispatch_port.push_back(ID_OC_SFU);
+    m_issue_port.push_back(OC_EX_SFU);
+  }
+
+  for (unsigned k = 0; k < m_config->gpgpu_num_tensor_core_units; k++) {
+    m_fu.push_back(new tensor_core(&m_pipeline_reg[EX_WB], m_config, this, k));
+    m_dispatch_port.push_back(ID_OC_TENSOR_CORE);
+    m_issue_port.push_back(OC_EX_TENSOR_CORE);
+  }
+
+  for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
+    for (unsigned k = 0; k < m_config->m_specialized_unit[j].num_units; k++) {
+      m_fu.push_back(new specialized_unit(
+          &m_pipeline_reg[EX_WB], m_config, this, SPEC_UNIT_START_ID + j,
+          m_config->m_specialized_unit[j].name,
+          m_config->m_specialized_unit[j].latency, k));
+      m_dispatch_port.push_back(m_config->m_specialized_unit[j].ID_OC_SPEC_ID);
+      m_issue_port.push_back(m_config->m_specialized_unit[j].OC_EX_SPEC_ID);
+    }
+  }
+
+  if (m_ldst_unit) {
+    m_fu.push_back(m_ldst_unit);
+    m_dispatch_port.push_back(ID_OC_MEM);
+    m_issue_port.push_back(OC_EX_MEM);
+  }
+  assert(m_num_function_units == m_fu.size() and
+         m_fu.size() == m_dispatch_port.size() and
+         m_fu.size() == m_issue_port.size());
+
+  // there are as many result buses as the width of the EX_WB stage
+  num_result_bus = m_config->pipe_widths[EX_WB];
+  for (unsigned i = 0; i < num_result_bus; i++) {
+    this->m_result_bus.push_back(new std::bitset<MAX_ALU_LATENCY>());
+  }
+}
 void shader_core_ctx::destroy_schedulers() {
   //ToDo
   //Delete all existing schedulers
@@ -5116,8 +5422,8 @@ for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
   destroy_schedulers();
   
   destroy_functional_units();
-  ldst_unit* old_ldst = m_ldst_unit;
-  m_ldst_unit = NULL;
+  // ldst_unit* old_ldst = m_ldst_unit;
+  // m_ldst_unit = NULL;
   
   //delete pipeline
   m_pipeline_reg.clear();
@@ -5128,13 +5434,13 @@ for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
     if (m_scoreboard) {
     delete m_scoreboard;
   }
-  create_front_pipeline();
+  create_front_pipeline_exec();
   create_schedulers();
-    if (old_ldst) {
-    delete old_ldst;
-  }
+  //   if (old_ldst) {
+  //   delete old_ldst;
+  // }
   //also fu here
-  create_exec_pipeline();
+  create_exec_pipeline_exec();
 
   // Log the reconfiguration
   printf("Completed decreasing reconfiguration to: SP=%u, SFU=%u, DP=%u, INT=%u, Tensor=%u, Schedulers=%u\n",
@@ -5226,7 +5532,16 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
                    new_values.gpgpu_num_sp_units);
             printf("⚡ Stalling dispatch on all cores...\n");
   //Stall Dispatch
-            m_reconfig_dispatch_stall = true;
+            for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
+            simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
+            printf("SM %u:\n", cluster_id);
+            for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
+                shader_core_ctx* core = cluster->get_core(core_id);
+                if (core) {
+                    core->m_reconfig_dispatch_stall = true;
+                }
+            }
+        }
             m_waiting_for_reconvergence = true;
 
           }
@@ -5242,6 +5557,7 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
                         drained_cores++;
                     } else {
                         all_cores_drained = false;
+                        break;
                     }
                    
                 }
@@ -5249,11 +5565,11 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
         }
         drain_cycles++;
         if (!all_cores_drained) {
-          // if(drain_cycles == 200) {
-          //   printf("ERROR: Timeout waiting for pipeline drain after %u cycles. Forcing reconfiguration anyway.\n", drain_cycles);
-          //   abort();
-          //   return;
-          // }
+          if(drain_cycles == 200) {
+            printf("ERROR: Timeout waiting for pipeline drain after %u cycles. Forcing reconfiguration anyway.\n", drain_cycles);
+            abort();
+            return;
+          }
           printf("Waiting for pipeline drain... Cycle %u, Drained cores: %u\n",
                        drain_cycles, drained_cores);
             
@@ -5267,11 +5583,12 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
                 shader_core_ctx* core = cluster->get_core(core_id);
                 if (core) {
                     core->perform_reconfiguration(new_values, reconfig);
+                    core->m_reconfig_dispatch_stall = false;  
                    
                 }
             }
         }
-        m_reconfig_dispatch_stall = false;
+        
         printf("Resume dispatch on all cores\n");
         m_current_config++;
         m_waiting_for_reconvergence = false;

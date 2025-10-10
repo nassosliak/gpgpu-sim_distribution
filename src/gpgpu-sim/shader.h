@@ -2506,7 +2506,8 @@ class shader_core_ctx : public core_t {
   void create_front_pipeline();
   void create_schedulers();
   void create_exec_pipeline();
-
+  void create_exec_pipeline_exec();
+  void create_front_pipeline_exec();
   // pure virtual methods implemented based on the current execution mode
   // (execution-driven vs trace-driven)
   virtual void init_warps(unsigned cta_id, unsigned start_thread,
