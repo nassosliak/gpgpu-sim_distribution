@@ -63,7 +63,7 @@ const char *cache_fail_status_str(enum cache_reservation_fail_reason status) {
 
   return static_cache_reservation_fail_reason_str[status];
 }
-cache_config::~cache_config() {}
+
 unsigned l1d_cache_config::set_bank(new_addr_type addr) const {
   // For sector cache, we select one sector per bank (sector interleaving)
   // This is what was found in Volta (one sector per bank, sector interleaving)
@@ -144,12 +144,7 @@ unsigned cache_config::hash_function(new_addr_type addr, unsigned m_nset,
       break;
     }
   }
-  // if (!(set_index < m_nset)) {
-  //     printf("DEBUG: set_index=%u m_nset=%u addr=0x%llx m_line_sz_log2=%u m_nset_log2=%u m_index_function=%u\n",
-  //            set_index, m_nset, addr, m_line_sz_log2, m_nset_log2, m_index_function);
-  //     fflush(stdout);
-  //     // sleep(30); // Pause for 30 seconds for inspection
-  // }
+
   // Linear function selected or custom set index function not implemented
   assert((set_index < m_nset) &&
          "\nError: Set index out of bounds. This is caused by "
@@ -493,10 +488,7 @@ void tag_array::new_window() {
   m_prev_snapshot_miss = m_miss + m_sector_miss;
   m_prev_snapshot_pending_hit = m_pending_hit;
 }
-bool tag_array::all_lines_idle() const {
-    // Optionally check for pending lines, etc.
-    return pending_lines.empty();
-}
+
 void tag_array::print(FILE *stream, unsigned &total_access,
                       unsigned &total_misses) const {
   m_config.print(stream);
@@ -1414,11 +1406,7 @@ void data_cache::send_write_request(mem_fetch *mf, cache_event request,
   m_miss_queue.push_back(mf);
   mf->set_status(m_miss_queue_status, time);
 }
-void data_cache::invalidate() {
-    m_tag_array->invalidate();
-    m_mshrs.clear();
-    m_extra_mf_fields.clear();
-}
+
 void data_cache::update_m_readable(mem_fetch *mf, unsigned cache_index) {
   cache_block_t *block = m_tag_array->get_block(cache_index);
   for (unsigned i = 0; i < SECTOR_CHUNCK_SIZE; i++) {
@@ -2110,24 +2098,7 @@ void tex_cache::cycle() {
     }
   }
 }
-void tex_cache::invalidate() {
-    // Invalidate all tag array entries
-    m_tags.invalidate();
 
-    // Reset FIFOs and cache blocks
-    while (!m_fragment_fifo.empty()) m_fragment_fifo.pop();
-    while (!m_request_fifo.empty()) m_request_fifo.pop();
-    while (!m_rob.empty()) m_rob.pop();
-    while (!m_result_fifo.empty()) m_result_fifo.pop();
-
-    // Invalidate all data blocks
-    for (unsigned i = 0; i < m_config.get_num_lines(); ++i) {
-        m_cache[i].m_valid = false;
-        m_cache[i].m_block_addr = 0;
-    }
-
-    m_extra_mf_fields.clear();
-}
 /// Place returning cache block into reorder buffer
 void tex_cache::fill(mem_fetch *mf, unsigned time) {
   if (m_config.m_mshr_type == SECTOR_TEX_FIFO) {

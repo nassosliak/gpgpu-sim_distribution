@@ -34,7 +34,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <cmath>
 #include "../abstract_hardware_model.h"
 #include "../tr1_hash_map.h"
 #include "gpu-misc.h"
@@ -567,7 +566,7 @@ class cache_config {
     m_is_streaming = false;
     m_wr_percent = 0;
   }
-  virtual ~cache_config();
+  
   void init(char *config, FuncCache status) {
     cache_status = status;
     assert(config);
@@ -905,6 +904,46 @@ class cache_config {
   friend class l2_cache;
   friend class memory_sub_partition;
 };
+
+class l1d_cache_config : public cache_config {
+ public:
+  l1d_cache_config() : cache_config() {}
+  unsigned set_bank(new_addr_type addr) const;
+  void init(char *config, FuncCache status) {
+    l1_banks_byte_interleaving_log2 = LOGB2(l1_banks_byte_interleaving);
+    l1_banks_log2 = LOGB2(l1_banks);
+    cache_config::init(config, status);
+  }
+  unsigned l1_latency;
+  unsigned l1_banks;
+  unsigned l1_banks_log2;
+  unsigned l1_banks_byte_interleaving;
+  unsigned l1_banks_byte_interleaving_log2;
+  unsigned l1_banks_hashing_function;
+  unsigned m_unified_cache_size;
+  virtual unsigned get_max_cache_multiplier() const {
+    // set * assoc * cacheline size. Then convert Byte to KB
+    // gpgpu_unified_cache_size is in KB while original_sz is in B
+    if (m_unified_cache_size > 0) {
+      unsigned original_size = m_nset * original_m_assoc * m_line_sz / 1024;
+      assert(m_unified_cache_size % original_size == 0);
+      return m_unified_cache_size / original_size;
+    } else {
+      return MAX_DEFAULT_CACHE_SIZE_MULTIBLIER;
+    }
+  }
+};
+
+class l2_cache_config : public cache_config {
+ public:
+  l2_cache_config() : cache_config() {}
+  void init(linear_to_raw_address_translation *address_mapping);
+  virtual unsigned set_index(new_addr_type addr) const;
+
+ private:
+  linear_to_raw_address_translation *m_address_mapping;
+};
+
 class tag_array {
  public:
   // Use this constructor
@@ -928,7 +967,7 @@ class tag_array {
   void fill(unsigned idx, unsigned time, mem_fetch *mf);
   void fill(new_addr_type addr, unsigned time, mem_access_sector_mask_t mask,
             mem_access_byte_mask_t byte_mask, bool is_write);
-  bool all_lines_idle() const;
+
   unsigned size() const { return m_config.get_num_lines(); }
   cache_block_t *get_block(unsigned idx) { return m_lines[idx]; }
 
@@ -982,91 +1021,7 @@ class tag_array {
   typedef tr1_hash_map<new_addr_type, unsigned> line_table;
   line_table pending_lines;
 };
-class l1d_cache_config : public cache_config {
- public:
-  unsigned m_cache_size; 
-  unsigned m_n_banks;
-  unsigned m_block_sz;
-  tag_array* m_tag_array;
 
-  unsigned l1_latency;
-  unsigned l1_banks;
-  unsigned l1_banks_log2;
-  unsigned l1_banks_byte_interleaving;
-  unsigned l1_banks_byte_interleaving_log2;
-  unsigned l1_banks_hashing_function;
-  unsigned m_unified_cache_size;
-  l1d_cache_config()
-      : cache_config(),
-        m_cache_size(0),
-        m_n_banks(0),
-        m_block_sz(0),
-        m_tag_array(NULL),
-        l1_latency(0),
-        l1_banks(0),
-        l1_banks_log2(0),
-        l1_banks_byte_interleaving(0),
-        l1_banks_byte_interleaving_log2(0),
-        l1_banks_hashing_function(0),
-        m_unified_cache_size(0) {}
-
-  void set_config(unsigned size, unsigned assoc, unsigned line_size, unsigned banks) {
-    m_cache_size = size;
-    m_assoc = assoc;
-    m_line_sz = line_size; 
-    m_n_banks = banks;
-    m_nset = (m_cache_size / m_line_sz) / m_assoc;
-    m_block_sz = m_line_sz;
-    if (m_tag_array) {
-      delete m_tag_array;
-      m_tag_array = NULL;
-    }
-  }
-
-  ~l1d_cache_config() {
-    if (m_tag_array) {
-      delete m_tag_array;
-      m_tag_array = NULL;
-    }
-  }
-
-  void init_tag_array(int core_id, int type_id) {
-    if (m_tag_array) {
-      delete m_tag_array;
-    }
-    m_tag_array = new tag_array(*this, core_id, type_id);
-  }
-
-  unsigned set_bank(new_addr_type addr) const;
-
-  void init(char *config, FuncCache status) {
-    l1_banks_byte_interleaving_log2 = LOGB2(l1_banks_byte_interleaving);
-    l1_banks_log2 = LOGB2(l1_banks);
-    cache_config::init(config, status);
-  }
-
-  virtual unsigned get_max_cache_multiplier() const {
-    // set * assoc * cacheline size. Then convert Byte to KB
-    // gpgpu_unified_cache_size is in KB while original_sz is in B
-    if (m_unified_cache_size > 0) {
-      unsigned original_size = m_nset * original_m_assoc * m_line_sz / 1024;
-      assert(m_unified_cache_size % original_size == 0);
-      return m_unified_cache_size / original_size;
-    } else {
-      return MAX_DEFAULT_CACHE_SIZE_MULTIBLIER;
-    }
-  }
-};
-
-class l2_cache_config : public cache_config {
- public:
-  l2_cache_config() : cache_config() {}
-  void init(linear_to_raw_address_translation *address_mapping);
-  virtual unsigned set_index(new_addr_type addr) const;
-
- private:
-  linear_to_raw_address_translation *m_address_mapping;
-};
 
 
 
@@ -1092,7 +1047,6 @@ class mshr_table {
   bool busy() const { return false; }
   /// Accept a new cache fill response: mark entry ready for processing
   void mark_ready(new_addr_type block_addr, bool &has_atomic);
-  void clear() { m_data.clear(); m_current_response.clear(); }
   /// Returns true if ready accesses exist
   bool access_ready() const { return !m_current_response.empty(); }
   /// Returns next ready access
@@ -1546,7 +1500,6 @@ class read_only_cache : public baseline_cache {
                                            std::list<cache_event> &events);
 
   virtual ~read_only_cache() {}
-  bool is_idle() const;
  protected:
   read_only_cache(const char *name, cache_config &config, int core_id,
                   int type_id, mem_fetch_interface *memport,
@@ -1572,7 +1525,6 @@ class data_cache : public baseline_cache {
   }
 
   virtual ~data_cache() {}
-void invalidate();
   virtual void init(mem_fetch_allocator *mfcreator) {
     m_memfetch_creator = mfcreator;
 
@@ -1759,11 +1711,9 @@ class l1_cache : public data_cache {
                    L1_WR_ALLOC_R, L1_WRBK_ACC, gpu, level) {}
 
   virtual ~l1_cache() {}
-  const cache_config& get_config() const { return m_config; }
   virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf,
                                            unsigned time,
                                            std::list<cache_event> &events);
-  bool is_idle() const;
  protected:
   l1_cache(const char *name, cache_config &config, int core_id, int type_id,
            mem_fetch_interface *memport, mem_fetch_allocator *mfcreator,
@@ -1828,9 +1778,7 @@ class tex_cache : public cache_t {
   enum cache_request_status access(new_addr_type addr, mem_fetch *mf,
                                    unsigned time,
                                    std::list<cache_event> &events);
-  void invalidate();
   void cycle();
-    bool is_idle() const;
   /// Place returning cache block into reorder buffer
   void fill(mem_fetch *mf, unsigned time);
   /// Are any (accepted) accesses that had to wait for memory now ready? (does
