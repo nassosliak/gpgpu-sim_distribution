@@ -5250,133 +5250,133 @@ void shader_core_ctx::create_front_pipeline_exec() {
 
 void shader_core_ctx::create_exec_pipeline_exec() {
   // op collector configuration
-  // enum { SP_CUS, DP_CUS, SFU_CUS, TENSOR_CORE_CUS, INT_CUS, MEM_CUS, GEN_CUS };
+  enum { SP_CUS, DP_CUS, SFU_CUS, TENSOR_CORE_CUS, INT_CUS, MEM_CUS, GEN_CUS };
 
-  // opndcoll_rfu_t::port_vector_t in_ports;
-  // opndcoll_rfu_t::port_vector_t out_ports;
-  // opndcoll_rfu_t::uint_vector_t cu_sets;
+  opndcoll_rfu_t::port_vector_t in_ports;
+  opndcoll_rfu_t::port_vector_t out_ports;
+  opndcoll_rfu_t::uint_vector_t cu_sets;
 
-  // // configure generic collectors
-  // m_operand_collector.add_cu_set(
-  //     GEN_CUS, m_config->gpgpu_operand_collector_num_units_gen,
-  //     m_config->gpgpu_operand_collector_num_out_ports_gen);
+  // configure generic collectors
+  m_operand_collector.add_cu_set(
+      GEN_CUS, m_config->gpgpu_operand_collector_num_units_gen,
+      m_config->gpgpu_operand_collector_num_out_ports_gen);
 
-  // for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_gen;
-  //      i++) {
-  //   in_ports.push_back(&m_pipeline_reg[ID_OC_SP]);
-  //   in_ports.push_back(&m_pipeline_reg[ID_OC_SFU]);
-  //   in_ports.push_back(&m_pipeline_reg[ID_OC_MEM]);
-  //   out_ports.push_back(&m_pipeline_reg[OC_EX_SP]);
-  //   out_ports.push_back(&m_pipeline_reg[OC_EX_SFU]);
-  //   out_ports.push_back(&m_pipeline_reg[OC_EX_MEM]);
-  //   if (m_config->gpgpu_tensor_core_avail) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_TENSOR_CORE]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_TENSOR_CORE]);
-  //   }
-  //   if (m_config->gpgpu_num_dp_units > 0) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_DP]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_DP]);
-  //   }
-  //   if (m_config->gpgpu_num_int_units > 0) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_INT]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_INT]);
-  //   }
-  //   if (m_config->m_specialized_unit.size() > 0) {
-  //     for (unsigned j = 0; j < m_config->m_specialized_unit.size(); ++j) {
-  //       in_ports.push_back(
-  //           &m_pipeline_reg[m_config->m_specialized_unit[j].ID_OC_SPEC_ID]);
-  //       out_ports.push_back(
-  //           &m_pipeline_reg[m_config->m_specialized_unit[j].OC_EX_SPEC_ID]);
-  //     }
-  //   }
-  //   cu_sets.push_back((unsigned)GEN_CUS);
-  //   m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //   in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  // }
+  for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_gen;
+       i++) {
+    in_ports.push_back(&m_pipeline_reg[ID_OC_SP]);
+    in_ports.push_back(&m_pipeline_reg[ID_OC_SFU]);
+    in_ports.push_back(&m_pipeline_reg[ID_OC_MEM]);
+    out_ports.push_back(&m_pipeline_reg[OC_EX_SP]);
+    out_ports.push_back(&m_pipeline_reg[OC_EX_SFU]);
+    out_ports.push_back(&m_pipeline_reg[OC_EX_MEM]);
+    if (m_config->gpgpu_tensor_core_avail) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_TENSOR_CORE]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_TENSOR_CORE]);
+    }
+    if (m_config->gpgpu_num_dp_units > 0) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_DP]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_DP]);
+    }
+    if (m_config->gpgpu_num_int_units > 0) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_INT]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_INT]);
+    }
+    if (m_config->m_specialized_unit.size() > 0) {
+      for (unsigned j = 0; j < m_config->m_specialized_unit.size(); ++j) {
+        in_ports.push_back(
+            &m_pipeline_reg[m_config->m_specialized_unit[j].ID_OC_SPEC_ID]);
+        out_ports.push_back(
+            &m_pipeline_reg[m_config->m_specialized_unit[j].OC_EX_SPEC_ID]);
+      }
+    }
+    cu_sets.push_back((unsigned)GEN_CUS);
+    m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+    in_ports.clear(), out_ports.clear(), cu_sets.clear();
+  }
 
-  // if (m_config->enable_specialized_operand_collector) {
-  //   m_operand_collector.add_cu_set(
-  //       SP_CUS, m_config->gpgpu_operand_collector_num_units_sp,
-  //       m_config->gpgpu_operand_collector_num_out_ports_sp);
-  //   m_operand_collector.add_cu_set(
-  //       DP_CUS, m_config->gpgpu_operand_collector_num_units_dp,
-  //       m_config->gpgpu_operand_collector_num_out_ports_dp);
-  //   m_operand_collector.add_cu_set(
-  //       TENSOR_CORE_CUS,
-  //       m_config->gpgpu_operand_collector_num_units_tensor_core,
-  //       m_config->gpgpu_operand_collector_num_out_ports_tensor_core);
-  //   m_operand_collector.add_cu_set(
-  //       SFU_CUS, m_config->gpgpu_operand_collector_num_units_sfu,
-  //       m_config->gpgpu_operand_collector_num_out_ports_sfu);
-  //   m_operand_collector.add_cu_set(
-  //       MEM_CUS, m_config->gpgpu_operand_collector_num_units_mem,
-  //       m_config->gpgpu_operand_collector_num_out_ports_mem);
-  //   m_operand_collector.add_cu_set(
-  //       INT_CUS, m_config->gpgpu_operand_collector_num_units_int,
-  //       m_config->gpgpu_operand_collector_num_out_ports_int);
+  if (m_config->enable_specialized_operand_collector) {
+    m_operand_collector.add_cu_set(
+        SP_CUS, m_config->gpgpu_operand_collector_num_units_sp,
+        m_config->gpgpu_operand_collector_num_out_ports_sp);
+    m_operand_collector.add_cu_set(
+        DP_CUS, m_config->gpgpu_operand_collector_num_units_dp,
+        m_config->gpgpu_operand_collector_num_out_ports_dp);
+    m_operand_collector.add_cu_set(
+        TENSOR_CORE_CUS,
+        m_config->gpgpu_operand_collector_num_units_tensor_core,
+        m_config->gpgpu_operand_collector_num_out_ports_tensor_core);
+    m_operand_collector.add_cu_set(
+        SFU_CUS, m_config->gpgpu_operand_collector_num_units_sfu,
+        m_config->gpgpu_operand_collector_num_out_ports_sfu);
+    m_operand_collector.add_cu_set(
+        MEM_CUS, m_config->gpgpu_operand_collector_num_units_mem,
+        m_config->gpgpu_operand_collector_num_out_ports_mem);
+    m_operand_collector.add_cu_set(
+        INT_CUS, m_config->gpgpu_operand_collector_num_units_int,
+        m_config->gpgpu_operand_collector_num_out_ports_int);
 
-  //   for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_sp;
-  //        i++) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_SP]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_SP]);
-  //     cu_sets.push_back((unsigned)SP_CUS);
-  //     cu_sets.push_back((unsigned)GEN_CUS);
-  //     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //     in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  //   }
+    for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_sp;
+         i++) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_SP]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_SP]);
+      cu_sets.push_back((unsigned)SP_CUS);
+      cu_sets.push_back((unsigned)GEN_CUS);
+      m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+      in_ports.clear(), out_ports.clear(), cu_sets.clear();
+    }
 
-  //   for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_dp;
-  //        i++) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_DP]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_DP]);
-  //     cu_sets.push_back((unsigned)DP_CUS);
-  //     cu_sets.push_back((unsigned)GEN_CUS);
-  //     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //     in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  //   }
+    for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_dp;
+         i++) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_DP]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_DP]);
+      cu_sets.push_back((unsigned)DP_CUS);
+      cu_sets.push_back((unsigned)GEN_CUS);
+      m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+      in_ports.clear(), out_ports.clear(), cu_sets.clear();
+    }
 
-  //   for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_sfu;
-  //        i++) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_SFU]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_SFU]);
-  //     cu_sets.push_back((unsigned)SFU_CUS);
-  //     cu_sets.push_back((unsigned)GEN_CUS);
-  //     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //     in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  //   }
+    for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_sfu;
+         i++) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_SFU]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_SFU]);
+      cu_sets.push_back((unsigned)SFU_CUS);
+      cu_sets.push_back((unsigned)GEN_CUS);
+      m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+      in_ports.clear(), out_ports.clear(), cu_sets.clear();
+    }
 
-  //   for (unsigned i = 0;
-  //        i < m_config->gpgpu_operand_collector_num_in_ports_tensor_core; i++) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_TENSOR_CORE]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_TENSOR_CORE]);
-  //     cu_sets.push_back((unsigned)TENSOR_CORE_CUS);
-  //     cu_sets.push_back((unsigned)GEN_CUS);
-  //     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //     in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  //   }
+    for (unsigned i = 0;
+         i < m_config->gpgpu_operand_collector_num_in_ports_tensor_core; i++) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_TENSOR_CORE]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_TENSOR_CORE]);
+      cu_sets.push_back((unsigned)TENSOR_CORE_CUS);
+      cu_sets.push_back((unsigned)GEN_CUS);
+      m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+      in_ports.clear(), out_ports.clear(), cu_sets.clear();
+    }
 
-  //   for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_mem;
-  //        i++) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_MEM]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_MEM]);
-  //     cu_sets.push_back((unsigned)MEM_CUS);
-  //     cu_sets.push_back((unsigned)GEN_CUS);
-  //     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //     in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  //   }
+    for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_mem;
+         i++) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_MEM]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_MEM]);
+      cu_sets.push_back((unsigned)MEM_CUS);
+      cu_sets.push_back((unsigned)GEN_CUS);
+      m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+      in_ports.clear(), out_ports.clear(), cu_sets.clear();
+    }
 
-  //   for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_int;
-  //        i++) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_INT]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_INT]);
-  //     cu_sets.push_back((unsigned)INT_CUS);
-  //     cu_sets.push_back((unsigned)GEN_CUS);
-  //     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //     in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  //   }
-  // }
+    for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_int;
+         i++) {
+      in_ports.push_back(&m_pipeline_reg[ID_OC_INT]);
+      out_ports.push_back(&m_pipeline_reg[OC_EX_INT]);
+      cu_sets.push_back((unsigned)INT_CUS);
+      cu_sets.push_back((unsigned)GEN_CUS);
+      m_operand_collector.add_port(in_ports, out_ports, cu_sets);
+      in_ports.clear(), out_ports.clear(), cu_sets.clear();
+    }
+  }
 
-  // m_operand_collector.init(m_config->gpgpu_num_reg_banks, this);
+  m_operand_collector.init(m_config->gpgpu_num_reg_banks, this);
 
   m_num_function_units =
       m_config->gpgpu_num_sp_units + m_config->gpgpu_num_dp_units +
@@ -5513,7 +5513,7 @@ for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
   //delete pipeline
   m_pipeline_reg.clear();
   m_specilized_dispatch_reg.clear();
-  // cleanup_operand_collector();
+  cleanup_operand_collector();
 
   //   if (m_scoreboard) {
   //   delete m_scoreboard;

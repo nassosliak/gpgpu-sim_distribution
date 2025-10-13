@@ -669,12 +669,6 @@ class opndcoll_rfu_t {  // operand collector based register file unit
   
   void cleanup_for_reconfiguration() {
     // Clean up collector units using their public interface
-    for (auto& cu_set : m_cus) {
-      for (auto& cu : cu_set.second) {
-        cu.cleanup_warp();
-      }
-    }
-    
     // Clear all operand collector state
     m_cus.clear();
     m_cu.clear();
