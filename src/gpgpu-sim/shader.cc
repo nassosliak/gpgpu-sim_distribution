@@ -5259,9 +5259,14 @@ void shader_core_ctx::destroy_functional_units() {
   }
   
   m_fu.clear();
+  m_fu.shrink_to_fit();
   m_dispatch_port.clear();
+  m_dispatch_port.shrink_to_fit();
   m_issue_port.clear();
-  
+  m_issue_port.shrink_to_fit();
+   std::vector<simd_function_unit*>().swap(m_fu);
+  std::vector<unsigned int>().swap(m_dispatch_port);
+  std::vector<unsigned int>().swap(m_issue_port);
   // Reset result bus
   for (unsigned i = 0; i < num_result_bus; i++) {
     if (m_result_bus[i]) {
@@ -5269,7 +5274,8 @@ void shader_core_ctx::destroy_functional_units() {
       m_result_bus[i] = nullptr;
     }
   }
-  m_result_bus.clear();
+  std::vector<std::bitset<MAX_ALU_LATENCY>*>().swap(m_result_bus);
+  // m_result_bus.clear();
   
   m_num_function_units = 0;
 }
@@ -5330,8 +5336,8 @@ void shader_core_ctx::check_exec_unit_reconfiguration() {
         return;
     }
   unsigned long long global_inst_count = m_gpu->gpu_tot_sim_insn + m_gpu->gpu_sim_insn;
-  printf("DEBUG: global_inst_count = %llu\n", global_inst_count);
-  printf("DEBUG: total cycles = %llu\n", m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle);
+  // printf("DEBUG: global_inst_count = %llu\n", global_inst_count);
+  // printf("DEBUG: total cycles = %llu\n", m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle);
   if (m_current_config >= m_reconfig_points.size()) {
         
         return;
@@ -5440,8 +5446,8 @@ printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_tr
           //   abort();
           //   return;
           // }
-          printf("Waiting for pipeline drain... Cycle %u, Drained cores: %u\n",
-                       drain_cycles, drained_cores);
+          // printf("Waiting for pipeline drain... Cycle %u, Drained cores: %u\n",
+          //              drain_cycles, drained_cores);
             
             return;
         }

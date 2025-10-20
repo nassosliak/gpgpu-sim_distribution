@@ -2014,8 +2014,15 @@ void gpgpu_sim::cycle() {
 
         log_phase_behavior();
         // Print stats for phase
-        gpu_print_stat(last_streamID); 
-        
+        // gpu_print_stat(last_streamID); 
+          printf("gpu_phase_ipc = %12.4f\n", m_current_phase_ipc);
+  printf("gpu_sim_cycle = %lld\n", gpu_sim_cycle);
+  printf("gpu_sim_insn = %lld\n", gpu_sim_insn);
+  printf("gpu_ipc = %12.4f\n", (float)gpu_sim_insn / gpu_sim_cycle);
+  printf("gpu_tot_sim_cycle = %lld\n", gpu_tot_sim_cycle + gpu_sim_cycle);
+  printf("gpu_tot_sim_insn = %lld\n", gpu_tot_sim_insn + gpu_sim_insn);
+  printf("gpu_tot_ipc = %12.4f\n", (float)(gpu_tot_sim_insn + gpu_sim_insn) /
+                                       (gpu_tot_sim_cycle + gpu_sim_cycle));
         
         // Update tracking for next phase
         m_phase_start_cycle = gpu_tot_sim_cycle + gpu_sim_cycle;
