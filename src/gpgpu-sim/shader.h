@@ -1153,7 +1153,12 @@ class simd_function_unit {
  public:
   simd_function_unit(shader_core_config *config);
   ~simd_function_unit() { delete m_dispatch_reg; }
-
+  void cleanup_dispatch_register() {
+    if (m_dispatch_reg) {
+      delete m_dispatch_reg;
+      m_dispatch_reg = nullptr;
+    }
+  }
   // modifiers
   virtual void issue(register_set &source_reg);
   virtual void cycle() = 0;
@@ -1189,9 +1194,25 @@ class pipelined_simd_unit : public simd_function_unit {
 
   // modifiers
   virtual void cycle();
+  void cleanup_pipeline_registers() {
+    if (m_pipeline_reg) {
+      for (unsigned stage = 0; stage < m_pipeline_depth; stage++) {
+        if (m_pipeline_reg[stage]) {
+          delete m_pipeline_reg[stage];
+          m_pipeline_reg[stage] = nullptr;
+        }
+      }
+      delete[] m_pipeline_reg;
+      m_pipeline_reg = nullptr;
+    }
+  }
   virtual void issue(register_set &source_reg);
   virtual unsigned get_active_lanes_in_pipeline();
-
+    unsigned get_pipeline_depth() const { return m_pipeline_depth; }
+  warp_inst_t* get_pipeline_reg(unsigned stage) { 
+    if (stage < m_pipeline_depth) return m_pipeline_reg[stage];
+    return nullptr;
+  }
   virtual void active_lanes_in_pipeline() = 0;
   /*
       virtual void issue( register_set& source_reg )

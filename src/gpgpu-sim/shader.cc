@@ -5026,26 +5026,6 @@ void shader_core_ctx::parse_pipeline_widths(const std::string& widths_str) {
   delete[] tokd;
 }
 
-// bool shader_core_ctx::execution_pipeline_drained() {
-//   for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
-//         if (!m_pipeline_reg[i].empty()) {
-//             printf("Core %u: Pipeline reg %zu not empty\n", m_sid, i);
-//             return false;
-//         }
-//     }
-//     for (size_t i = 0; i < m_fu.size(); ++i) {
-//       // if (m_fu[i] == m_ldst_unit) continue;
-//         if (m_fu[i] && m_fu[i]->is_occupied()) {
-//             printf("SM %u: FU %zu (%s) is occupied\n", m_sid, i, m_fu[i]->get_name());
-//             return false;
-//         } 
-//     }
-//   // for (unsigned i = 0; i < m_config->n_thread_per_shader; ++i) {
-//   //       if (m_threadState[i].m_active)
-//   //           return false;
-//   //   }
-//     return true;
-// }
 bool shader_core_ctx::execution_pipeline_drained() {
   // Check pipeline registers
   for (size_t i = 0; i < m_pipeline_reg.size(); ++i) {
@@ -5078,89 +5058,7 @@ bool shader_core_ctx::execution_pipeline_drained() {
   return true;
 }
 
-void shader_core_ctx::create_schedulers_exec() {
-  // m_scoreboard = new Scoreboard(m_sid, m_config->max_warps_per_shader, m_gpu);
 
-  // scedulers
-  // must currently occur after all inputs have been initialized.
-  std::string sched_config = m_config->gpgpu_scheduler_string;
-  const concrete_scheduler scheduler =
-      sched_config.find("lrr") != std::string::npos ? CONCRETE_SCHEDULER_LRR
-      : sched_config.find("two_level_active") != std::string::npos
-          ? CONCRETE_SCHEDULER_TWO_LEVEL_ACTIVE
-      : sched_config.find("gto") != std::string::npos ? CONCRETE_SCHEDULER_GTO
-      : sched_config.find("rrr") != std::string::npos ? CONCRETE_SCHEDULER_RRR
-      : sched_config.find("old") != std::string::npos
-          ? CONCRETE_SCHEDULER_OLDEST_FIRST
-      : sched_config.find("warp_limiting") != std::string::npos
-          ? CONCRETE_SCHEDULER_WARP_LIMITING
-          : NUM_CONCRETE_SCHEDULERS;
-  assert(scheduler != NUM_CONCRETE_SCHEDULERS);
-
-  for (unsigned i = 0; i < m_config->gpgpu_num_sched_per_core; i++) {
-    switch (scheduler) {
-      case CONCRETE_SCHEDULER_LRR:
-        schedulers.push_back(new lrr_scheduler(
-            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
-            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
-            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
-            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
-            &m_pipeline_reg[ID_OC_MEM], i));
-        break;
-      case CONCRETE_SCHEDULER_TWO_LEVEL_ACTIVE:
-        schedulers.push_back(new two_level_active_scheduler(
-            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
-            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
-            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
-            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
-            &m_pipeline_reg[ID_OC_MEM], i, m_config->gpgpu_scheduler_string));
-        break;
-      case CONCRETE_SCHEDULER_GTO:
-        schedulers.push_back(new gto_scheduler(
-            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
-            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
-            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
-            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
-            &m_pipeline_reg[ID_OC_MEM], i));
-        break;
-      case CONCRETE_SCHEDULER_RRR:
-        schedulers.push_back(new rrr_scheduler(
-            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
-            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
-            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
-            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
-            &m_pipeline_reg[ID_OC_MEM], i));
-        break;
-      case CONCRETE_SCHEDULER_OLDEST_FIRST:
-        schedulers.push_back(new oldest_scheduler(
-            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
-            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
-            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
-            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
-            &m_pipeline_reg[ID_OC_MEM], i));
-        break;
-      case CONCRETE_SCHEDULER_WARP_LIMITING:
-        schedulers.push_back(new swl_scheduler(
-            m_stats, this, m_scoreboard, m_simt_stack, &m_warp,
-            &m_pipeline_reg[ID_OC_SP], &m_pipeline_reg[ID_OC_DP],
-            &m_pipeline_reg[ID_OC_SFU], &m_pipeline_reg[ID_OC_INT],
-            &m_pipeline_reg[ID_OC_TENSOR_CORE], m_specilized_dispatch_reg,
-            &m_pipeline_reg[ID_OC_MEM], i, m_config->gpgpu_scheduler_string));
-        break;
-      default:
-        abort();
-    };
-  }
-
-  for (unsigned i = 0; i < m_warp.size(); i++) {
-    // distribute i's evenly though schedulers;
-    schedulers[i % m_config->gpgpu_num_sched_per_core]->add_supervised_warp_id(
-        i);
-  }
-  for (unsigned i = 0; i < m_config->gpgpu_num_sched_per_core; ++i) {
-    schedulers[i]->done_adding_supervised_warps();
-  }
-}
 
 void shader_core_ctx::create_front_pipeline_exec() {
   // pipeline_stages is the sum of normal pipeline stages and specialized_unit
@@ -5250,133 +5148,7 @@ void shader_core_ctx::create_front_pipeline_exec() {
 
 void shader_core_ctx::create_exec_pipeline_exec() {
   // op collector configuration
-  // enum { SP_CUS, DP_CUS, SFU_CUS, TENSOR_CORE_CUS, INT_CUS, MEM_CUS, GEN_CUS };
 
-  // opndcoll_rfu_t::port_vector_t in_ports;
-  // opndcoll_rfu_t::port_vector_t out_ports;
-  // opndcoll_rfu_t::uint_vector_t cu_sets;
-
-  // // configure generic collectors
-  // m_operand_collector.add_cu_set(
-  //     GEN_CUS, m_config->gpgpu_operand_collector_num_units_gen,
-  //     m_config->gpgpu_operand_collector_num_out_ports_gen);
-
-  // for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_gen;
-  //      i++) {
-  //   in_ports.push_back(&m_pipeline_reg[ID_OC_SP]);
-  //   in_ports.push_back(&m_pipeline_reg[ID_OC_SFU]);
-  //   in_ports.push_back(&m_pipeline_reg[ID_OC_MEM]);
-  //   out_ports.push_back(&m_pipeline_reg[OC_EX_SP]);
-  //   out_ports.push_back(&m_pipeline_reg[OC_EX_SFU]);
-  //   out_ports.push_back(&m_pipeline_reg[OC_EX_MEM]);
-  //   if (m_config->gpgpu_tensor_core_avail) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_TENSOR_CORE]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_TENSOR_CORE]);
-  //   }
-  //   if (m_config->gpgpu_num_dp_units > 0) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_DP]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_DP]);
-  //   }
-  //   if (m_config->gpgpu_num_int_units > 0) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_INT]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_INT]);
-  //   }
-  //   if (m_config->m_specialized_unit.size() > 0) {
-  //     for (unsigned j = 0; j < m_config->m_specialized_unit.size(); ++j) {
-  //       in_ports.push_back(
-  //           &m_pipeline_reg[m_config->m_specialized_unit[j].ID_OC_SPEC_ID]);
-  //       out_ports.push_back(
-  //           &m_pipeline_reg[m_config->m_specialized_unit[j].OC_EX_SPEC_ID]);
-  //     }
-  //   }
-  //   cu_sets.push_back((unsigned)GEN_CUS);
-  //   m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //   in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  // }
-
-  // if (m_config->enable_specialized_operand_collector) {
-  //   m_operand_collector.add_cu_set(
-  //       SP_CUS, m_config->gpgpu_operand_collector_num_units_sp,
-  //       m_config->gpgpu_operand_collector_num_out_ports_sp);
-  //   m_operand_collector.add_cu_set(
-  //       DP_CUS, m_config->gpgpu_operand_collector_num_units_dp,
-  //       m_config->gpgpu_operand_collector_num_out_ports_dp);
-  //   m_operand_collector.add_cu_set(
-  //       TENSOR_CORE_CUS,
-  //       m_config->gpgpu_operand_collector_num_units_tensor_core,
-  //       m_config->gpgpu_operand_collector_num_out_ports_tensor_core);
-  //   m_operand_collector.add_cu_set(
-  //       SFU_CUS, m_config->gpgpu_operand_collector_num_units_sfu,
-  //       m_config->gpgpu_operand_collector_num_out_ports_sfu);
-  //   m_operand_collector.add_cu_set(
-  //       MEM_CUS, m_config->gpgpu_operand_collector_num_units_mem,
-  //       m_config->gpgpu_operand_collector_num_out_ports_mem);
-  //   m_operand_collector.add_cu_set(
-  //       INT_CUS, m_config->gpgpu_operand_collector_num_units_int,
-  //       m_config->gpgpu_operand_collector_num_out_ports_int);
-
-  //   for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_sp;
-  //        i++) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_SP]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_SP]);
-  //     cu_sets.push_back((unsigned)SP_CUS);
-  //     cu_sets.push_back((unsigned)GEN_CUS);
-  //     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //     in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  //   }
-
-  //   for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_dp;
-  //        i++) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_DP]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_DP]);
-  //     cu_sets.push_back((unsigned)DP_CUS);
-  //     cu_sets.push_back((unsigned)GEN_CUS);
-  //     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //     in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  //   }
-
-  //   for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_sfu;
-  //        i++) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_SFU]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_SFU]);
-  //     cu_sets.push_back((unsigned)SFU_CUS);
-  //     cu_sets.push_back((unsigned)GEN_CUS);
-  //     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //     in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  //   }
-
-  //   for (unsigned i = 0;
-  //        i < m_config->gpgpu_operand_collector_num_in_ports_tensor_core; i++) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_TENSOR_CORE]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_TENSOR_CORE]);
-  //     cu_sets.push_back((unsigned)TENSOR_CORE_CUS);
-  //     cu_sets.push_back((unsigned)GEN_CUS);
-  //     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //     in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  //   }
-
-  //   for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_mem;
-  //        i++) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_MEM]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_MEM]);
-  //     cu_sets.push_back((unsigned)MEM_CUS);
-  //     cu_sets.push_back((unsigned)GEN_CUS);
-  //     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //     in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  //   }
-
-  //   for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_int;
-  //        i++) {
-  //     in_ports.push_back(&m_pipeline_reg[ID_OC_INT]);
-  //     out_ports.push_back(&m_pipeline_reg[OC_EX_INT]);
-  //     cu_sets.push_back((unsigned)INT_CUS);
-  //     cu_sets.push_back((unsigned)GEN_CUS);
-  //     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
-  //     in_ports.clear(), out_ports.clear(), cu_sets.clear();
-  //   }
-  // }
-
-  // m_operand_collector.init(m_config->gpgpu_num_reg_banks, this);
 
   m_num_function_units =
       m_config->gpgpu_num_sp_units + m_config->gpgpu_num_dp_units +
@@ -5387,7 +5159,9 @@ void shader_core_ctx::create_exec_pipeline_exec() {
   // m_issue_port = new enum pipeline_stage_name_t[ m_num_function_units ];
 
   // m_fu = new simd_function_unit*[m_num_function_units];
-
+  m_fu.reserve(m_num_function_units);
+  m_dispatch_port.reserve(m_num_function_units);
+  m_issue_port.reserve(m_num_function_units);
   for (unsigned k = 0; k < m_config->gpgpu_num_sp_units; k++) {
     m_fu.push_back(new sp_unit(&m_pipeline_reg[EX_WB], m_config, this, k));
     m_dispatch_port.push_back(ID_OC_SP);
@@ -5443,47 +5217,64 @@ void shader_core_ctx::create_exec_pipeline_exec() {
     this->m_result_bus.push_back(new std::bitset<MAX_ALU_LATENCY>());
   }
 }
-void shader_core_ctx::destroy_schedulers() {
-  //ToDo
-  //Delete all existing schedulers
-  for (unsigned i = 0; i < schedulers.size(); i++) {
-    delete schedulers[i];
-  }
-  schedulers.clear();
-}
-
 
 void shader_core_ctx::destroy_functional_units() {
-  //ToDo
-  //Delete all existing functional units
-  for (unsigned i = 0; i < m_fu.size(); i++) {
-    if (m_fu[i] != m_ldst_unit) {
-      delete m_fu[i];
+  // First, remove ldst_unit from m_fu vector WITHOUT deleting it
+  auto ldst_it = std::find(m_fu.begin(), m_fu.end(), m_ldst_unit);
+  if (ldst_it != m_fu.end()) {
+    m_fu.erase(ldst_it);
+    
+    // Also remove corresponding dispatch/issue ports
+    size_t ldst_index = std::distance(m_fu.begin(), ldst_it);
+    if (ldst_index < m_dispatch_port.size()) {
+      m_dispatch_port.erase(m_dispatch_port.begin() + ldst_index);
+    }
+    if (ldst_index < m_issue_port.size()) {
+      m_issue_port.erase(m_issue_port.begin() + ldst_index);
     }
   }
+  
+  // Now delete all other FUs
+  for (unsigned i = 0; i < m_fu.size(); i++) {
+    if (m_fu[i]) {
+      pipelined_simd_unit* pipelined = dynamic_cast<pipelined_simd_unit*>(m_fu[i]);
+      if (pipelined) {
+        for (unsigned stage = 0; stage < pipelined->get_pipeline_depth(); stage++) {
+          warp_inst_t* pipeline_reg = pipelined->get_pipeline_reg(stage);
+          if (pipeline_reg) {
+            pipeline_reg->clear();
+          }
+        }
+        pipelined->cleanup_pipeline_registers();
+      }
+      
+      simd_function_unit* simd_fu = dynamic_cast<simd_function_unit*>(m_fu[i]);
+      if (simd_fu) {
+        simd_fu->cleanup_dispatch_register();
+      }
+      
+      delete m_fu[i];
+      m_fu[i] = nullptr;
+    }
+  }
+  
   m_fu.clear();
   m_dispatch_port.clear();
   m_issue_port.clear();
   
   // Reset result bus
   for (unsigned i = 0; i < num_result_bus; i++) {
-    delete m_result_bus[i];
+    if (m_result_bus[i]) {
+      delete m_result_bus[i];
+      m_result_bus[i] = nullptr;
+    }
   }
   m_result_bus.clear();
   
-  // Reset function unit count
   m_num_function_units = 0;
 }
 
 
-
-
-
-
-void shader_core_ctx::cleanup_operand_collector() {
-  // Use the public cleanup method instead of accessing private members
-  m_operand_collector.cleanup_for_reconfiguration();
-}
 void shader_core_ctx::perform_reconfiguration(const ShaderCoreConfigValues& new_values, const ExecUnitReconfig& reconfig) {
   //ToDo
   //Use create_exec_pipeline(), create_schedulers() and other useful functions to recreate objects with new number of fu
@@ -5504,22 +5295,17 @@ for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
   }
 
   // Destroy and recreate core components
-  // destroy_schedulers();
   
   destroy_functional_units();
-  // ldst_unit* old_ldst = m_ldst_unit;
-  // m_ldst_unit = NULL;
   
   //delete pipeline
+  for (unsigned i = 0; i < m_pipeline_reg.size(); i++) {
+    m_pipeline_reg[i].clear();  // This clears internal warp_inst_t objects
+  }
   m_pipeline_reg.clear();
   m_specilized_dispatch_reg.clear();
-  // cleanup_operand_collector();
 
-  //   if (m_scoreboard) {
-  //   delete m_scoreboard;
-  // }
   create_front_pipeline_exec();
-  // create_schedulers_exec();
   //   if (old_ldst) {
   //   delete old_ldst;
   // }
