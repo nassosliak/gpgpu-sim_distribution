@@ -2108,6 +2108,16 @@ class shader_core_mem_fetch_allocator : public mem_fetch_allocator {
   const memory_config *m_memory_config;
 };
 
+struct ActiveExecConfig {
+  unsigned sp;
+  unsigned sfu;
+  unsigned dp;
+  unsigned int_u;
+  unsigned tensor;
+  unsigned sched;
+  int pipe_active_widths[N_PIPELINE_STAGES];
+};
+
 class shader_core_ctx : public core_t {
  public:
   // creator:
@@ -2118,6 +2128,54 @@ class shader_core_ctx : public core_t {
 
   // used by simt_core_cluster:
   // modifiers
+  // Lightweight (non-destructive) reconfiguration state
+  ActiveExecConfig m_active_cfg;
+  std::vector<unsigned long long> m_sched_issue_count;  // Per-scheduler issue count
+  std::vector<unsigned long long> m_fu_issue_count;     // Per-FU issue count
+   unsigned long long m_last_reconfig_cycle;
+  
+  void print_scheduler_activity() const {
+    printf("\n========== Scheduler Activity (SM %u) ==========\n", m_sid);
+    for (unsigned i = 0; i < schedulers.size(); i++) {
+      printf("  Sched %u: %llu instructions issued%s\n", 
+             i, m_sched_issue_count[i],
+             (i >= active_sched()) ? " (INACTIVE)" : " (active)");
+    }
+    printf("==============================================\n\n");
+  }
+  std::vector<bool> m_fu_active; // size == m_num_function_units after initial create
+  void init_active_config_from_current();
+  void perform_light_reconfiguration(const ShaderCoreConfigValues& new_values);
+  bool fu_is_active(unsigned fu_idx) const {
+    if (fu_idx >= m_fu_active.size()) return false;
+    return m_fu_active[fu_idx];
+  }
+  // Overridden light gating query helpers
+  unsigned active_sp_units() const { return m_active_cfg.sp; }
+  unsigned active_sfu_units() const { return m_active_cfg.sfu; }
+  unsigned active_dp_units() const { return m_active_cfg.dp; }
+  unsigned active_int_units() const { return m_active_cfg.int_u; }
+  unsigned active_tensor_units() const { return m_active_cfg.tensor; }
+  unsigned active_sched() const { return m_active_cfg.sched; }
+  bool can_issue_to_fu_for_op(unsigned op_type) const {
+    if (op_type == LOAD_OP || op_type == STORE_OP || 
+        op_type == MEMORY_BARRIER_OP ||
+        op_type == TENSOR_CORE_LOAD_OP || 
+        op_type == TENSOR_CORE_STORE_OP) {
+      return true; // Memory ops always allowed
+    }
+    if (op_type == SP_OP) return m_active_cfg.sp > 0;
+    if (op_type == SFU_OP || op_type == ALU_SFU_OP) return m_active_cfg.sfu > 0;
+    if (op_type == DP_OP) return m_active_cfg.dp > 0;
+    if (op_type == INT_OP) return m_active_cfg.int_u > 0;
+    if (op_type == TENSOR_CORE_OP) return m_active_cfg.tensor > 0;
+    if (op_type >= SPEC_UNIT_START_ID) return true; // Specialized always allowed
+    return true; // Default allow
+  }
+  int active_pipe_width(enum pipeline_stage_name_t stg) const { return m_active_cfg.pipe_active_widths[stg]; }
+
+  // Classification helpers (indices in m_fu are contiguous per type order used in create_exec_pipeline_exec)
+  void classify_fu_index(unsigned fu_idx, exec_unit_type_t &type, unsigned &local_idx) const;
   void cycle();
   void reinit(unsigned start_thread, unsigned end_thread,
               bool reset_not_completed);

@@ -463,6 +463,7 @@ void shader_core_ctx::create_exec_pipeline() {
   for (unsigned i = 0; i < num_result_bus; i++) {
     this->m_result_bus.push_back(new std::bitset<MAX_ALU_LATENCY>());
   }
+  init_active_config_from_current();
 }
 
 shader_core_ctx::shader_core_ctx(class gpgpu_sim *gpu,
@@ -505,7 +506,8 @@ shader_core_ctx::shader_core_ctx(class gpgpu_sim *gpu,
 
   if(m_dynamic_reconfig_enabled) {
   init_reconfigurations();
-
+  init_active_config_from_current();
+  } else {
   // // Initialize pipeline widths
   // for (unsigned i = 0; i < N_PIPELINE_STAGES; i++) {
   //   m_config_pipe_widths[i] = config->pipe_widths[i];
@@ -1269,9 +1271,16 @@ void scheduler_unit::order_by_priority(
 }
 
 void scheduler_unit::cycle() {
-  if (m_shader->is_dispatch_stall_active()) {
-    return;  // Don't schedule new instructions during reconfiguration
-  }
+  // if (m_shader->is_dispatch_stall_active()) {
+  //   return;  // Don't schedule new instructions during reconfiguration
+  // }
+  // if ((unsigned)m_id >= m_shader->active_sched()) return;
+  // if ((unsigned)m_id >= m_shader->active_sched()) {
+  //   SCHED_DPRINTF("Scheduler %d inactive (active=%u)\n", m_id, m_shader->active_sched());
+  //   return; // Don't issue new instructions from inactive schedulers
+  // }
+  bool is_active_scheduler = ((unsigned)m_id < m_shader->active_sched());
+  
   SCHED_DPRINTF("scheduler_unit::cycle()\n");
   bool valid_inst =
       false;  // there was one warp with a valid instruction to issue (didn't
@@ -1317,6 +1326,7 @@ void scheduler_unit::cycle() {
            (checked < max_issue) && (checked <= issued) &&
            (issued < max_issue)) {
       const warp_inst_t *pI = warp(warp_id).ibuffer_next_inst();
+
       // Jin: handle cdp latency;
       if (pI && pI->m_is_cdp && warp(warp_id).m_cdp_latency > 0) {
         assert(warp(warp_id).m_cdp_dummy);
@@ -1543,6 +1553,10 @@ void scheduler_unit::cycle() {
         do_on_warp_issued(warp_id, issued, iter);
       }
       checked++;
+      if (!is_active_scheduler && warp_inst_issued) {
+        SCHED_DPRINTF("Scheduler %d inactive: stopping after draining issued instruction\n", m_id);
+        break; // Exit while loop AFTER issuing
+      }
     }
     if (issued) {
       // This might be a bit inefficient, but we need to maintain
@@ -1817,14 +1831,57 @@ int shader_core_ctx::test_res_bus(int latency) {
   return -1;
 }
 
+// void shader_core_ctx::execute() {
+//   for (unsigned i = 0; i < num_result_bus; i++) {
+//     *(m_result_bus[i]) >>= 1;
+//   }
+//   for (unsigned n = 0; n < m_num_function_units; n++) {
+//     unsigned multiplier = m_fu[n]->clock_multiplier();
+//     for (unsigned c = 0; c < multiplier; c++) m_fu[n]->cycle();
+//     m_fu[n]->active_lanes_in_pipeline();
+//     unsigned issue_port = m_issue_port[n];
+//     register_set &issue_inst = m_pipeline_reg[issue_port];
+//     unsigned reg_id;
+//     bool partition_issue =
+//         m_config->sub_core_model && m_fu[n]->is_issue_partitioned();
+//     if (partition_issue) {
+//       reg_id = m_fu[n]->get_issue_reg_id();
+//     }
+//     warp_inst_t **ready_reg = issue_inst.get_ready(partition_issue, reg_id);
+//     if (issue_inst.has_ready(partition_issue, reg_id) &&
+//         m_fu[n]->can_issue(**ready_reg)) {
+//       bool schedule_wb_now = !m_fu[n]->stallable();
+//       int resbus = -1;
+//       if (schedule_wb_now &&
+//           (resbus = test_res_bus((*ready_reg)->latency)) != -1) {
+//         assert((*ready_reg)->latency < MAX_ALU_LATENCY);
+//         m_result_bus[resbus]->set((*ready_reg)->latency);
+//         m_fu[n]->issue(issue_inst);
+//       } else if (!schedule_wb_now) {
+//         m_fu[n]->issue(issue_inst);
+//       } else {
+//         // stall issue (cannot reserve result bus)
+//       }
+//     }
+//   }
+// }
 void shader_core_ctx::execute() {
   for (unsigned i = 0; i < num_result_bus; i++) {
     *(m_result_bus[i]) >>= 1;
   }
+  
   for (unsigned n = 0; n < m_num_function_units; n++) {
+    // CHANGED: Let inactive FUs cycle to complete existing work
+    // They just won't receive new instructions (blocked in issue stage)
     unsigned multiplier = m_fu[n]->clock_multiplier();
     for (unsigned c = 0; c < multiplier; c++) m_fu[n]->cycle();
     m_fu[n]->active_lanes_in_pipeline();
+    
+    // // NEW: Skip issuing to inactive FUs
+    // if (!fu_is_active(n)) {
+    //   continue; // Don't issue new work to inactive FUs
+    // }
+    
     unsigned issue_port = m_issue_port[n];
     register_set &issue_inst = m_pipeline_reg[issue_port];
     unsigned reg_id;
@@ -1851,7 +1908,6 @@ void shader_core_ctx::execute() {
     }
   }
 }
-
 void ldst_unit::print_cache_stats(FILE *fp, unsigned &dl1_accesses,
                                   unsigned &dl1_misses) {
   if (m_L1D) {
@@ -5058,7 +5114,122 @@ bool shader_core_ctx::execution_pipeline_drained() {
   return true;
 }
 
+void shader_core_ctx::init_active_config_from_current() {
+  m_active_cfg.sp     = m_config->gpgpu_num_sp_units;
+  m_active_cfg.sfu    = m_config->gpgpu_num_sfu_units;
+  m_active_cfg.dp     = m_config->gpgpu_num_dp_units;
+  m_active_cfg.int_u  = m_config->gpgpu_num_int_units;
+  m_active_cfg.tensor = m_config->gpgpu_num_tensor_core_units;
+  m_active_cfg.sched  = m_config->gpgpu_num_sched_per_core;
+  for (int i=0; i<N_PIPELINE_STAGES; ++i)
+    m_active_cfg.pipe_active_widths[i] = m_config->pipe_widths[i];
+  m_fu_active.assign(m_num_function_units, true);
+}
 
+void shader_core_ctx::classify_fu_index(unsigned fu_idx, exec_unit_type_t &type, unsigned &local_idx) const {
+  // Ordering matches create_exec_pipeline_exec: SP, DP, INT, SFU, TENSOR, SPECIALIZED..., LDST(last)
+  unsigned idx = fu_idx;
+  unsigned spN = m_config->gpgpu_num_sp_units;
+  unsigned dpN = m_config->gpgpu_num_dp_units;
+  unsigned intN= m_config->gpgpu_num_int_units;
+  unsigned sfuN= m_config->gpgpu_num_sfu_units;
+  unsigned tcN = m_config->gpgpu_num_tensor_core_units;
+  unsigned specN = m_config->m_specialized_unit_num;
+  if (idx < spN) { type=SP; local_idx=idx; return; }
+  idx -= spN;
+  if (idx < dpN) { type=DP; local_idx=idx; return; }
+  idx -= dpN;
+  if (idx < intN){ type=INT; local_idx=idx; return; }
+  idx -= intN;
+  if (idx < sfuN){ type=SFU; local_idx=idx; return; }
+  idx -= sfuN;
+  if (idx < tcN) { type=TENSOR; local_idx=idx; return; }
+  idx -= tcN;
+  if (idx < specN){ type=SPECIALIZED; local_idx=idx; return; }
+  // Remaining is LD/ST
+  type=MEM; local_idx=0;
+}
+
+void shader_core_ctx::perform_light_reconfiguration(const ShaderCoreConfigValues& new_values) {
+  // Update active counts
+  m_active_cfg.sp     = std::min(new_values.gpgpu_num_sp_units, m_config->gpgpu_num_sp_units);
+  m_active_cfg.sfu    = std::min(new_values.gpgpu_num_sfu_units, m_config->gpgpu_num_sfu_units);
+  m_active_cfg.dp     = std::min(new_values.gpgpu_num_dp_units, m_config->gpgpu_num_dp_units);
+  m_active_cfg.int_u  = std::min(new_values.gpgpu_num_int_units, m_config->gpgpu_num_int_units);
+  m_active_cfg.tensor = std::min(new_values.gpgpu_num_tensor_core_units, m_config->gpgpu_num_tensor_core_units);
+  m_active_cfg.sched  = std::min(new_values.gpgpu_num_sched_per_core, m_config->gpgpu_num_sched_per_core);
+
+  // Active pipeline widths
+  parse_pipeline_widths(new_values.gpgpu_pipeline_widths);
+  for (int i=0;i<N_PIPELINE_STAGES;i++) {
+    m_active_cfg.pipe_active_widths[i] = std::min(m_config_pipe_widths[i], m_config->pipe_widths[i]);
+  }
+
+  // Gate FUs by scheduler ownership in sub-core model
+  unsigned num_warp_scheds = m_config->gpgpu_num_sched_per_core;
+  
+  for (unsigned i=0;i<m_fu_active.size();++i) {
+    exec_unit_type_t t; unsigned lid;
+    classify_fu_index(i, t, lid);
+    
+    bool enable = true;
+    if (m_config->sub_core_model) {
+      // Each FU belongs to a specific scheduler
+      unsigned cusPerSched = 0;
+      unsigned schd_id = 0;
+      
+      switch(t) {
+        case SP:
+          cusPerSched = m_config->gpgpu_num_sp_units / num_warp_scheds;
+          schd_id = lid / cusPerSched;
+          enable = (lid < m_active_cfg.sp) && (schd_id < m_active_cfg.sched);
+          break;
+        case DP:
+          cusPerSched = m_config->gpgpu_num_dp_units / num_warp_scheds;
+          schd_id = lid / cusPerSched;
+          enable = (lid < m_active_cfg.dp) && (schd_id < m_active_cfg.sched);
+          break;
+        case INT:
+          cusPerSched = m_config->gpgpu_num_int_units / num_warp_scheds;
+          schd_id = lid / cusPerSched;
+          enable = (lid < m_active_cfg.int_u) && (schd_id < m_active_cfg.sched);
+          break;
+        case SFU:
+          cusPerSched = m_config->gpgpu_num_sfu_units / num_warp_scheds;
+          schd_id = lid / cusPerSched;
+          enable = (lid < m_active_cfg.sfu) && (schd_id < m_active_cfg.sched);
+          break;
+        case TENSOR:
+          cusPerSched = m_config->gpgpu_num_tensor_core_units / num_warp_scheds;
+          schd_id = lid / cusPerSched;
+          enable = (lid < m_active_cfg.tensor) && (schd_id < m_active_cfg.sched);
+          break;
+        case SPECIALIZED:
+        case MEM:
+          enable = true; // Always enabled
+          break;
+        default:
+          enable = true;
+      }
+    } else {
+      // Non-subcore: simple per-type gating
+      switch(t) {
+        case SP: enable = (lid < m_active_cfg.sp); break;
+        case DP: enable = (lid < m_active_cfg.dp); break;
+        case INT: enable = (lid < m_active_cfg.int_u); break;
+        case SFU: enable = (lid < m_active_cfg.sfu); break;
+        case TENSOR: enable = (lid < m_active_cfg.tensor); break;
+        default: enable = true;
+      }
+    }
+    
+    m_fu_active[i] = enable;
+  }
+
+  printf("Light Reconfiguration: Active SP=%u SFU=%u DP=%u INT=%u Tensor=%u Sched=%u\n",
+         m_active_cfg.sp, m_active_cfg.sfu, m_active_cfg.dp,
+         m_active_cfg.int_u, m_active_cfg.tensor, m_active_cfg.sched);
+}
 
 void shader_core_ctx::create_front_pipeline_exec() {
   // pipeline_stages is the sum of normal pipeline stages and specialized_unit
@@ -5325,160 +5496,244 @@ for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
          m_config->gpgpu_num_tensor_core_units, m_config->gpgpu_num_sched_per_core);
 }
 
-void shader_core_ctx::check_exec_unit_reconfiguration() {
+// void shader_core_ctx::check_exec_unit_reconfiguration() {
 
-  //Checks if reconfiguration is enabled
+//   //Checks if reconfiguration is enabled
+//   if (!m_config->m_dynamic_reconfig_enabled) {
+//     return;
+//   }
+//   if (m_sid != 0) {
+//         // printf("DEBUG: Early return: not core 0 (m_sid=%u)\n", m_sid);
+//         return;
+//     }
+//   unsigned long long global_inst_count = m_gpu->gpu_tot_sim_insn + m_gpu->gpu_sim_insn;
+//   // printf("DEBUG: global_inst_count = %llu\n", global_inst_count);
+//   // printf("DEBUG: total cycles = %llu\n", m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle);
+//   if (m_current_config >= m_reconfig_points.size()) {
+        
+//         return;
+//     }
+
+//     ExecUnitReconfig& reconfig = m_reconfig_points[m_current_config];
+//     if (global_inst_count < reconfig.instr_id) {
+        
+//         return;
+//     }
+
+//     //Decide on reducing or increasing reconfiguration
+//     unsigned curr_sp = m_config->gpgpu_num_sp_units;
+//     unsigned curr_sfu = m_config->gpgpu_num_sfu_units;
+//     unsigned curr_dp = m_config->gpgpu_num_dp_units;
+//     unsigned curr_int = m_config->gpgpu_num_int_units;
+//     unsigned curr_tensor = m_config->gpgpu_num_tensor_core_units;
+//     unsigned curr_schedulers = m_config->gpgpu_num_sched_per_core;
+
+//     // Parse new config file for FU counts
+//     unsigned next_sp, next_sfu, next_dp, next_int, next_tensor, next_schedulers;
+//     ShaderCoreConfigValues new_values = parse_shader_core_config(reconfig.gpgpusim_config_path);
+//     next_sp = new_values.gpgpu_num_sp_units;
+//     next_sfu = new_values.gpgpu_num_sfu_units;
+//     next_dp = new_values.gpgpu_num_dp_units;
+//     next_int = new_values.gpgpu_num_int_units;
+//     next_tensor = new_values.gpgpu_num_tensor_core_units;
+//     next_schedulers = new_values.gpgpu_num_sched_per_core;
+//     bool any_change =
+//         (next_sp != curr_sp) || (next_sfu != curr_sfu) ||
+//         (next_dp != curr_dp) || (next_int != curr_int) ||
+//         (next_tensor != curr_tensor) || (next_schedulers != curr_schedulers);
+    
+//         if (!any_change) {
+//           m_current_config++; // advance so we don't re-trigger endlessly
+//             return;
+//     }
+//      bool reducing_units =
+//         (next_sp < curr_sp) || (next_sfu < curr_sfu) ||
+//         (next_dp < curr_dp) || (next_int < curr_int) ||
+//         (next_tensor < curr_tensor);
+
+// //New configurations from Environmental Variables
+// const char* dest_gpgpusim_config = getenv("GPGPUSIM_CONFIG_PATH");
+// if (!dest_gpgpusim_config) dest_gpgpusim_config = "/accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/gpgpusim.config";
+
+// const char* dest_trace_config = getenv("GPGPUSIM_TRACE_CONFIG_PATH");
+// if (!dest_trace_config) dest_trace_config = "/accel-sim-framework/gpu-simulator/configs/tested-cfgs/SM7_QV100/trace.config";
+
+// std::string cmd1 = "cp " + reconfig.gpgpusim_config_path + " " + dest_gpgpusim_config;
+// std::string cmd2 = "cp " + reconfig.trace_config_path + " " + dest_trace_config;
+
+// int ret1 = system(cmd1.c_str());
+// int ret2 = system(cmd2.c_str());
+// if (ret1 != 0 || ret2 != 0) {
+//     printf("ERROR: Failed to copy config files for reconfiguration!\n");
+//     return;
+// }
+// printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_trace_config);
+// //Use single reconfiguration for DEBUG
+// //Reducing Reconfiguration
+// // if(reducing_units){
+//   //Initial Trigger and Dispatch Stall
+//   if(!m_waiting_for_reconvergence) {
+//   printf("========================================================\n");
+//             printf("⚡ RECONFIGURATION TRIGGERED at instruction %llu\n", global_inst_count);
+//             printf("⚡ Num Units: %u\n",
+//                    new_values.gpgpu_num_sp_units);
+//             printf("⚡ Stalling dispatch on all cores...\n");
+//   //Stall Dispatch
+//             for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
+//             simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
+//             printf("SM %u: stalled\n", cluster_id);
+//             for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
+//                 shader_core_ctx* core = cluster->get_core(core_id);
+//                 if (core) {
+//                     // core->m_reconfig_dispatch_stall = true;
+//                 }
+//             }
+//         }
+//             m_waiting_for_reconvergence = true;
+
+//           }
+//   //Check Drain
+//   // bool all_cores_drained = true;
+//   // unsigned drained_cores = 0;
+//   // for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
+//   //           simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
+//   //           for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
+//   //               shader_core_ctx* core = cluster->get_core(core_id);
+//   //               if (core) {
+//   //                   if (core->execution_pipeline_drained()) {
+//   //                       drained_cores++;
+//   //                   } else {
+//   //                       all_cores_drained = false;
+//   //                       break;
+//   //                   }
+                   
+//   //               }
+//   //           }
+//   //       }
+//   //       drain_cycles++;
+//   //       if (!all_cores_drained) {
+//   //         // if(drain_cycles == 200) {
+//   //         //   printf("ERROR: Timeout waiting for pipeline drain after %u cycles. Forcing reconfiguration anyway.\n", drain_cycles);
+//   //         //   abort();
+//   //         //   return;
+//   //         // }
+//   //         // printf("Waiting for pipeline drain... Cycle %u, Drained cores: %u\n",
+//   //         //              drain_cycles, drained_cores);
+            
+//   //           return;
+//   //       }
+//   //Perform Reconfiguration
+//   printf("⚡ Resuming dispatch on all cores...\n");
+//   for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
+//             simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
+//             for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
+//                 shader_core_ctx* core = cluster->get_core(core_id);
+//                 if (core) {
+//                     // core->perform_reconfiguration(new_values, reconfig);
+//                     core ->perform_light_reconfiguration(new_values);
+//                     core->m_reconfig_dispatch_stall = false;  
+                   
+//                 }
+//             }
+//         }
+        
+//         printf("Resume dispatch on all cores\n");
+//         m_current_config++;
+//         m_waiting_for_reconvergence = false;
+//         printf("✓ Decreasing Reconfiguration completed on all cores after %u cycles\n", drain_cycles);
+//         drain_cycles = 0;
+//         printf("After reconfig: active_threads=%zu, not_completed=%u, active_warps=%u\n",
+//          m_active_threads.count(), m_not_completed, m_active_warps);
+  
+//         // If no threads are active but there should be, this is the problem
+//         if (m_active_threads.count() == 0 && m_n_active_cta > 0) {
+//           printf("ERROR: No active threads but CTAs are still active!\n");
+//         }
+//       }
+
+void shader_core_ctx::check_exec_unit_reconfiguration() {
   if (!m_config->m_dynamic_reconfig_enabled) {
     return;
   }
   if (m_sid != 0) {
-        // printf("DEBUG: Early return: not core 0 (m_sid=%u)\n", m_sid);
-        return;
-    }
+    return;
+  }
+  
   unsigned long long global_inst_count = m_gpu->gpu_tot_sim_insn + m_gpu->gpu_sim_insn;
-  // printf("DEBUG: global_inst_count = %llu\n", global_inst_count);
-  // printf("DEBUG: total cycles = %llu\n", m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle);
+  
   if (m_current_config >= m_reconfig_points.size()) {
-        
-        return;
-    }
+    return;
+  }
 
-    ExecUnitReconfig& reconfig = m_reconfig_points[m_current_config];
-    if (global_inst_count < reconfig.instr_id) {
-        
-        return;
-    }
+  ExecUnitReconfig& reconfig = m_reconfig_points[m_current_config];
+  if (global_inst_count < reconfig.instr_id) {
+    return;
+  }
 
-    //Decide on reducing or increasing reconfiguration
-    unsigned curr_sp = m_config->gpgpu_num_sp_units;
-    unsigned curr_sfu = m_config->gpgpu_num_sfu_units;
-    unsigned curr_dp = m_config->gpgpu_num_dp_units;
-    unsigned curr_int = m_config->gpgpu_num_int_units;
-    unsigned curr_tensor = m_config->gpgpu_num_tensor_core_units;
-    unsigned curr_schedulers = m_config->gpgpu_num_sched_per_core;
+  // Parse new configuration
+  ShaderCoreConfigValues new_values = parse_shader_core_config(reconfig.gpgpusim_config_path);
+  
+  unsigned curr_sp = m_config->gpgpu_num_sp_units;
+  unsigned curr_sfu = m_config->gpgpu_num_sfu_units;
+  unsigned curr_dp = m_config->gpgpu_num_dp_units;
+  unsigned curr_int = m_config->gpgpu_num_int_units;
+  unsigned curr_tensor = m_config->gpgpu_num_tensor_core_units;
+  unsigned curr_schedulers = m_config->gpgpu_num_sched_per_core;
 
-    // Parse new config file for FU counts
-    unsigned next_sp, next_sfu, next_dp, next_int, next_tensor, next_schedulers;
-    ShaderCoreConfigValues new_values = parse_shader_core_config(reconfig.gpgpusim_config_path);
-    next_sp = new_values.gpgpu_num_sp_units;
-    next_sfu = new_values.gpgpu_num_sfu_units;
-    next_dp = new_values.gpgpu_num_dp_units;
-    next_int = new_values.gpgpu_num_int_units;
-    next_tensor = new_values.gpgpu_num_tensor_core_units;
-    next_schedulers = new_values.gpgpu_num_sched_per_core;
-    bool any_change =
-        (next_sp != curr_sp) || (next_sfu != curr_sfu) ||
-        (next_dp != curr_dp) || (next_int != curr_int) ||
-        (next_tensor != curr_tensor) || (next_schedulers != curr_schedulers);
-    
-        if (!any_change) {
-          m_current_config++; // advance so we don't re-trigger endlessly
-            return;
-    }
-     bool reducing_units =
-        (next_sp < curr_sp) || (next_sfu < curr_sfu) ||
-        (next_dp < curr_dp) || (next_int < curr_int) ||
-        (next_tensor < curr_tensor);
+  bool any_change =
+      (new_values.gpgpu_num_sp_units != curr_sp) || 
+      (new_values.gpgpu_num_sfu_units != curr_sfu) ||
+      (new_values.gpgpu_num_dp_units != curr_dp) || 
+      (new_values.gpgpu_num_int_units != curr_int) ||
+      (new_values.gpgpu_num_tensor_core_units != curr_tensor) || 
+      (new_values.gpgpu_num_sched_per_core != curr_schedulers);
+  
+  if (!any_change) {
+    m_current_config++;
+    return;
+  }
 
-//New configurations from Environmental Variables
-const char* dest_gpgpusim_config = getenv("GPGPUSIM_CONFIG_PATH");
-if (!dest_gpgpusim_config) dest_gpgpusim_config = "/accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/gpgpusim.config";
+  // Copy config files to environment variables
+  const char* dest_gpgpusim_config = getenv("GPGPUSIM_CONFIG_PATH");
+  if (!dest_gpgpusim_config) dest_gpgpusim_config = "/accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM7_QV100/gpgpusim.config";
 
-const char* dest_trace_config = getenv("GPGPUSIM_TRACE_CONFIG_PATH");
-if (!dest_trace_config) dest_trace_config = "/accel-sim-framework/gpu-simulator/configs/tested-cfgs/SM7_QV100/trace.config";
+  const char* dest_trace_config = getenv("GPGPUSIM_TRACE_CONFIG_PATH");
+  if (!dest_trace_config) dest_trace_config = "/accel-sim-framework/gpu-simulator/configs/tested-cfgs/SM7_QV100/trace.config";
 
-std::string cmd1 = "cp " + reconfig.gpgpusim_config_path + " " + dest_gpgpusim_config;
-std::string cmd2 = "cp " + reconfig.trace_config_path + " " + dest_trace_config;
+  std::string cmd1 = "cp " + reconfig.gpgpusim_config_path + " " + dest_gpgpusim_config;
+  std::string cmd2 = "cp " + reconfig.trace_config_path + " " + dest_trace_config;
 
-int ret1 = system(cmd1.c_str());
-int ret2 = system(cmd2.c_str());
-if (ret1 != 0 || ret2 != 0) {
+  int ret1 = system(cmd1.c_str());
+  int ret2 = system(cmd2.c_str());
+  if (ret1 != 0 || ret2 != 0) {
     printf("ERROR: Failed to copy config files for reconfiguration!\n");
     return;
-}
-printf("✓ Switched config files:\n  %s\n  %s\n", dest_gpgpusim_config, dest_trace_config);
-//Use single reconfiguration for DEBUG
-//Reducing Reconfiguration
-// if(reducing_units){
-  //Initial Trigger and Dispatch Stall
-  if(!m_waiting_for_reconvergence) {
+  }
+
   printf("========================================================\n");
-            printf("⚡ RECONFIGURATION TRIGGERED at instruction %llu\n", global_inst_count);
-            printf("⚡ Num Units: %u\n",
-                   new_values.gpgpu_num_sp_units);
-            printf("⚡ Stalling dispatch on all cores...\n");
-  //Stall Dispatch
-            for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
-            simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
-            printf("SM %u: stalled\n", cluster_id);
-            for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
-                shader_core_ctx* core = cluster->get_core(core_id);
-                if (core) {
-                    core->m_reconfig_dispatch_stall = true;
-                }
-            }
-        }
-            m_waiting_for_reconvergence = true;
+  printf("⚡ LIGHT RECONFIGURATION at instruction %llu\n", global_inst_count);
+  printf("⚡ Switching from SP=%u SFU=%u DP=%u INT=%u Tensor=%u Sched=%u\n",
+         curr_sp, curr_sfu, curr_dp, curr_int, curr_tensor, curr_schedulers);
+  printf("⚡ Switching to   SP=%u SFU=%u DP=%u INT=%u Tensor=%u Sched=%u\n",
+         new_values.gpgpu_num_sp_units, new_values.gpgpu_num_sfu_units,
+         new_values.gpgpu_num_dp_units, new_values.gpgpu_num_int_units,
+         new_values.gpgpu_num_tensor_core_units, new_values.gpgpu_num_sched_per_core);
 
-          }
-  //Check Drain
-  bool all_cores_drained = true;
-  unsigned drained_cores = 0;
+  // REMOVED: No dispatch stall, no drain waiting
+  // Just perform light reconfiguration on all cores immediately
   for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
-            simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
-            for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
-                shader_core_ctx* core = cluster->get_core(core_id);
-                if (core) {
-                    if (core->execution_pipeline_drained()) {
-                        drained_cores++;
-                    } else {
-                        all_cores_drained = false;
-                        break;
-                    }
-                   
-                }
-            }
-        }
-        drain_cycles++;
-        if (!all_cores_drained) {
-          // if(drain_cycles == 200) {
-          //   printf("ERROR: Timeout waiting for pipeline drain after %u cycles. Forcing reconfiguration anyway.\n", drain_cycles);
-          //   abort();
-          //   return;
-          // }
-          // printf("Waiting for pipeline drain... Cycle %u, Drained cores: %u\n",
-          //              drain_cycles, drained_cores);
-            
-            return;
-        }
-  //Perform Reconfiguration
-  printf("⚡ Resuming dispatch on all cores...\n");
-  for (unsigned cluster_id = 0; cluster_id < m_config->n_simt_clusters; cluster_id++) {
-            simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
-            for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
-                shader_core_ctx* core = cluster->get_core(core_id);
-                if (core) {
-                    core->perform_reconfiguration(new_values, reconfig);
-                    core->m_reconfig_dispatch_stall = false;  
-                   
-                }
-            }
-        }
-        
-        printf("Resume dispatch on all cores\n");
-        m_current_config++;
-        m_waiting_for_reconvergence = false;
-        printf("✓ Decreasing Reconfiguration completed on all cores after %u cycles\n", drain_cycles);
-        drain_cycles = 0;
-        printf("After reconfig: active_threads=%zu, not_completed=%u, active_warps=%u\n",
-         m_active_threads.count(), m_not_completed, m_active_warps);
-  
-        // If no threads are active but there should be, this is the problem
-        if (m_active_threads.count() == 0 && m_n_active_cta > 0) {
-          printf("ERROR: No active threads but CTAs are still active!\n");
-        }
+    simt_core_cluster* cluster = m_gpu->get_cluster(cluster_id);
+    for (unsigned core_id = 0; core_id < m_config->n_simt_cores_per_cluster; core_id++) {
+      shader_core_ctx* core = cluster->get_core(core_id);
+      if (core) {
+        core->perform_light_reconfiguration(new_values);
       }
-
-
+    }
+  }
+  
+  m_current_config++;
+  printf("✓ Light reconfiguration completed instantly\n");
+  printf("========================================================\n");
+}
 
 /////////////////////////////////////////////////////////////////////////////
