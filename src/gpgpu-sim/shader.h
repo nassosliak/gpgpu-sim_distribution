@@ -417,6 +417,22 @@ class scheduler_unit {  // this can be copied freely, so can be used in std
   virtual void add_supervised_warp_id(int i) {
     m_supervised_warps.push_back(&warp(i));
   }
+  const std::vector<unsigned>& get_supervised_warps() const { 
+    // Convert supervised warp pointers to IDs
+    static std::vector<unsigned> warp_ids;
+    warp_ids.clear();
+    for (auto* warp_ptr : m_supervised_warps) {
+      warp_ids.push_back(warp_ptr->get_warp_id());
+    }
+    return warp_ids;
+  }
+  
+  void clear_supervised_warps() {
+    m_supervised_warps.clear();
+  }
+   unsigned m_issues_since_reset;
+  void reset_issue_counter() { m_issues_since_reset = 0; }
+  unsigned get_issues_since_reset() const { return m_issues_since_reset; }
   virtual void done_adding_supervised_warps() {
     m_last_supervised_issued = m_supervised_warps.end();
   }
@@ -2130,6 +2146,7 @@ class shader_core_ctx : public core_t {
   // modifiers
   // Lightweight (non-destructive) reconfiguration state
   ActiveExecConfig m_active_cfg;
+  unsigned long long m_reconfig_cycle;
   std::vector<unsigned long long> m_sched_issue_count;  // Per-scheduler issue count
   std::vector<unsigned long long> m_fu_issue_count;     // Per-FU issue count
    unsigned long long m_last_reconfig_cycle;

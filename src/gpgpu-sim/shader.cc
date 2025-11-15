@@ -514,7 +514,7 @@ shader_core_ctx::shader_core_ctx(class gpgpu_sim *gpu,
   // }
 }
    
-  
+  m_reconfig_cycle = 0;
 }
 
 void shader_core_ctx::reinit(unsigned start_thread, unsigned end_thread,
@@ -1141,13 +1141,14 @@ void shader_core_ctx::issue_warp(register_set &pipe_reg_set,
 
 void shader_core_ctx::issue() {
   // Ensure fair round robin issu between schedulers
+  unsigned active_schedulers = active_sched();
   unsigned j;
   for (unsigned i = 0; i < schedulers.size(); i++) {
     j = (Issue_Prio + i) % schedulers.size();
     schedulers[j]->cycle();
   }
-  Issue_Prio = (Issue_Prio + 1) % schedulers.size();
-
+  // Issue_Prio = (Issue_Prio + 1) % schedulers.size();
+  Issue_Prio = (Issue_Prio + 1) % std::max(1u, active_schedulers);
   // really is issue;
   // for (unsigned i = 0; i < schedulers.size(); i++) {
   //    schedulers[i]->cycle();
@@ -1271,16 +1272,8 @@ void scheduler_unit::order_by_priority(
 }
 
 void scheduler_unit::cycle() {
-  // if (m_shader->is_dispatch_stall_active()) {
-  //   return;  // Don't schedule new instructions during reconfiguration
-  // }
-  // if ((unsigned)m_id >= m_shader->active_sched()) return;
-  // if ((unsigned)m_id >= m_shader->active_sched()) {
-  //   SCHED_DPRINTF("Scheduler %d inactive (active=%u)\n", m_id, m_shader->active_sched());
-  //   return; // Don't issue new instructions from inactive schedulers
-  // }
-  bool is_active_scheduler = ((unsigned)m_id < m_shader->active_sched());
-  
+
+ 
   SCHED_DPRINTF("scheduler_unit::cycle()\n");
   bool valid_inst =
       false;  // there was one warp with a valid instruction to issue (didn't
@@ -1326,7 +1319,6 @@ void scheduler_unit::cycle() {
            (checked < max_issue) && (checked <= issued) &&
            (issued < max_issue)) {
       const warp_inst_t *pI = warp(warp_id).ibuffer_next_inst();
-
       // Jin: handle cdp latency;
       if (pI && pI->m_is_cdp && warp(warp_id).m_cdp_latency > 0) {
         assert(warp(warp_id).m_cdp_dummy);
@@ -1553,10 +1545,6 @@ void scheduler_unit::cycle() {
         do_on_warp_issued(warp_id, issued, iter);
       }
       checked++;
-      if (!is_active_scheduler && warp_inst_issued) {
-        SCHED_DPRINTF("Scheduler %d inactive: stopping after draining issued instruction\n", m_id);
-        break; // Exit while loop AFTER issuing
-      }
     }
     if (issued) {
       // This might be a bit inefficient, but we need to maintain
@@ -1600,6 +1588,7 @@ void scheduler_unit::do_on_warp_issued(
   m_stats->event_warp_issued(m_shader->get_sid(), warp_id, num_issued,
                              warp(warp_id).get_dynamic_warp_id());
   warp(warp_id).ibuffer_step();
+  m_issues_since_reset += num_issued;
 }
 
 bool scheduler_unit::sort_warps_by_oldest_dynamic_id(shd_warp_t *lhs,
@@ -1871,16 +1860,11 @@ void shader_core_ctx::execute() {
   }
   
   for (unsigned n = 0; n < m_num_function_units; n++) {
-    // CHANGED: Let inactive FUs cycle to complete existing work
-    // They just won't receive new instructions (blocked in issue stage)
+
     unsigned multiplier = m_fu[n]->clock_multiplier();
     for (unsigned c = 0; c < multiplier; c++) m_fu[n]->cycle();
     m_fu[n]->active_lanes_in_pipeline();
     
-    // // NEW: Skip issuing to inactive FUs
-    // if (!fu_is_active(n)) {
-    //   continue; // Don't issue new work to inactive FUs
-    // }
     
     unsigned issue_port = m_issue_port[n];
     register_set &issue_inst = m_pipeline_reg[issue_port];
@@ -3737,6 +3721,38 @@ void shader_core_ctx::cycle() {
   if (!isactive() && get_not_completed() == 0) return;
 
   m_stats->shader_cycles[m_sid]++;
+  // / Track scheduler activity after reconfiguration (only for SM 0)
+  if (m_sid == 0 && m_reconfig_cycle > 0) {
+    unsigned cycles_since_reconfig = m_gpu->gpu_sim_cycle - m_reconfig_cycle;
+
+    // Print every 50 cycles after reconfiguration
+    if (cycles_since_reconfig > 0 && cycles_since_reconfig % 50 == 0) {
+      printf("\n=== SM 0 Scheduler Activity Report (Cycle %llu, %u cycles after reconfig) ===\n", 
+             m_gpu->gpu_sim_cycle, cycles_since_reconfig);
+      printf("Active schedulers: %u\n", active_sched());
+      
+      for (unsigned i = 0; i < schedulers.size(); i++) {
+        bool should_be_active = (i < active_sched());
+        unsigned issues = schedulers[i]->get_issues_since_reset();
+        unsigned expected_issues = should_be_active ? 1 : 0; // 1 means "can issue", 0 means "must not issue"
+        
+        printf("  Scheduler %u: ", i);
+        printf("Status=%s, ", should_be_active ? "ACTIVE" : "INACTIVE");
+        printf("Issues=%u, ", issues);
+        printf("Expected=%s, ", should_be_active ? ">0 allowed" : "0 (must be 0)");
+        
+        if (!should_be_active && issues > 0) {
+          printf("*** ERROR: INACTIVE SCHEDULER ISSUED %u INSTRUCTIONS ***", issues);
+        } else if (should_be_active && issues == 0) {
+          printf("(active but no issues yet)");
+        } else {
+          printf("OK");
+        }
+        printf("\n");
+      }
+      printf("===================================================================\n\n");
+    }
+  }
   writeback();
   execute();
   read_operands();
@@ -5151,86 +5167,177 @@ void shader_core_ctx::classify_fu_index(unsigned fu_idx, exec_unit_type_t &type,
 }
 
 void shader_core_ctx::perform_light_reconfiguration(const ShaderCoreConfigValues& new_values) {
+  // Update config values
+  m_config->gpgpu_num_sp_units = new_values.gpgpu_num_sp_units;
+  m_config->gpgpu_num_sfu_units = new_values.gpgpu_num_sfu_units;
+  m_config->gpgpu_num_dp_units = new_values.gpgpu_num_dp_units;
+  m_config->gpgpu_num_int_units = new_values.gpgpu_num_int_units;
+  m_config->gpgpu_num_tensor_core_units = new_values.gpgpu_num_tensor_core_units;
+  
+  unsigned old_sched_count = m_config->gpgpu_num_sched_per_core;
+  unsigned new_sched_count = new_values.gpgpu_num_sched_per_core;
+  m_config->gpgpu_num_sched_per_core = new_sched_count;
+  
   // Update active counts
-  m_active_cfg.sp     = std::min(new_values.gpgpu_num_sp_units, m_config->gpgpu_num_sp_units);
-  m_active_cfg.sfu    = std::min(new_values.gpgpu_num_sfu_units, m_config->gpgpu_num_sfu_units);
-  m_active_cfg.dp     = std::min(new_values.gpgpu_num_dp_units, m_config->gpgpu_num_dp_units);
-  m_active_cfg.int_u  = std::min(new_values.gpgpu_num_int_units, m_config->gpgpu_num_int_units);
-  m_active_cfg.tensor = std::min(new_values.gpgpu_num_tensor_core_units, m_config->gpgpu_num_tensor_core_units);
-  m_active_cfg.sched  = std::min(new_values.gpgpu_num_sched_per_core, m_config->gpgpu_num_sched_per_core);
-
-  // Active pipeline widths
+  m_active_cfg.sp     = new_values.gpgpu_num_sp_units;
+  m_active_cfg.sfu    = new_values.gpgpu_num_sfu_units;
+  m_active_cfg.dp     = new_values.gpgpu_num_dp_units;
+  m_active_cfg.int_u  = new_values.gpgpu_num_int_units;
+  m_active_cfg.tensor = new_values.gpgpu_num_tensor_core_units;
+  m_active_cfg.sched  = new_sched_count;
+  
+  // Parse and update pipeline widths
   parse_pipeline_widths(new_values.gpgpu_pipeline_widths);
-  for (int i=0;i<N_PIPELINE_STAGES;i++) {
-    m_active_cfg.pipe_active_widths[i] = std::min(m_config_pipe_widths[i], m_config->pipe_widths[i]);
+  for (int i=0; i<N_PIPELINE_STAGES; i++) {
+    m_active_cfg.pipe_active_widths[i] = m_config_pipe_widths[i];
+    m_config->pipe_widths[i] = m_config_pipe_widths[i];
   }
 
-  // Gate FUs by scheduler ownership in sub-core model
-  unsigned num_warp_scheds = m_config->gpgpu_num_sched_per_core;
-  
-  for (unsigned i=0;i<m_fu_active.size();++i) {
-    exec_unit_type_t t; unsigned lid;
-    classify_fu_index(i, t, lid);
+  // ===== CRITICAL: MIGRATE WARPS FROM DISABLED SCHEDULERS =====
+  // if (new_sched_count < old_sched_count) {
+  //   // We're reducing schedulers - need to migrate warps
+  //   std::vector<unsigned> warps_to_migrate;
     
-    bool enable = true;
-    if (m_config->sub_core_model) {
-      // Each FU belongs to a specific scheduler
-      unsigned cusPerSched = 0;
+  //   // Collect all warps from schedulers that will be disabled
+  //   for (unsigned sched_id = new_sched_count; sched_id < old_sched_count; sched_id++) {
+  //     const std::vector<unsigned>& supervised = schedulers[sched_id]->get_supervised_warps();
+  //     warps_to_migrate.insert(warps_to_migrate.end(), supervised.begin(), supervised.end());
+      
+  //     printf("  Scheduler %u being disabled, migrating %zu warps\n", 
+  //            sched_id, supervised.size());
+  //   }
+    
+  //   // Redistribute to active schedulers (round-robin)
+  //   if (!warps_to_migrate.empty()) {
+  //     printf("  Redistributing %zu warps across %u active schedulers\n",
+  //            warps_to_migrate.size(), new_sched_count);
+      
+  //     // Clear supervised warps from all schedulers
+  //     for (unsigned i = 0; i < schedulers.size(); i++) {
+  //       schedulers[i]->clear_supervised_warps();
+  //     }
+      
+  //     // Redistribute ALL warps (including migrated ones) round-robin
+  //     for (unsigned wid = 0; wid < m_warp.size(); wid++) {
+  //       unsigned target_sched = wid % new_sched_count;
+  //       schedulers[target_sched]->add_supervised_warp_id(wid);
+  //     }
+      
+  //     // Finalize all active schedulers
+  //     for (unsigned i = 0; i < new_sched_count; i++) {
+  //       schedulers[i]->done_adding_supervised_warps();
+  //     }
+  //   }
+  // }
+
+  // ===== CRITICAL: REDISTRIBUTE WARPS WHEN SCHEDULER COUNT CHANGES =====
+  if (new_sched_count < old_sched_count) {
+    // We're reducing schedulers - need to migrate warps
+    std::vector<unsigned> warps_to_migrate;
+
+    // Collect all warps from schedulers that will be disabled
+    for (unsigned sched_id = new_sched_count; sched_id < old_sched_count; sched_id++) {
+      const std::vector<unsigned>& supervised = schedulers[sched_id]->get_supervised_warps();
+      warps_to_migrate.insert(warps_to_migrate.end(), supervised.begin(), supervised.end());
+      printf("  Scheduler %u being disabled, migrating %zu warps\n", sched_id, supervised.size());
+    }
+
+    // Redistribute to active schedulers (round-robin)
+    if (!warps_to_migrate.empty()) {
+      printf("  Redistributing %zu warps across %u active schedulers\n",
+             warps_to_migrate.size(), new_sched_count);
+
+      // Clear supervised warps from all schedulers
+      for (unsigned i = 0; i < schedulers.size(); i++) {
+        schedulers[i]->clear_supervised_warps();
+      }
+
+      // Redistribute ALL warps (including migrated ones) round-robin
+      for (unsigned wid = 0; wid < m_warp.size(); wid++) {
+        unsigned target_sched = wid % new_sched_count;
+        schedulers[target_sched]->add_supervised_warp_id(wid);
+      }
+
+      // Finalize all active schedulers
+      for (unsigned i = 0; i < new_sched_count; i++) {
+        schedulers[i]->done_adding_supervised_warps();
+      }
+    }
+  } else if (new_sched_count > old_sched_count) {
+    // We're increasing schedulers - redistribute all warps round-robin
+    printf("  Increasing scheduler count: redistributing warps across %u schedulers\n", new_sched_count);
+
+    // Clear supervised warps from all schedulers
+    for (unsigned i = 0; i < schedulers.size(); i++) {
+      schedulers[i]->clear_supervised_warps();
+    }
+
+    // Redistribute ALL warps round-robin
+    for (unsigned wid = 0; wid < m_warp.size(); wid++) {
+      unsigned target_sched = wid % new_sched_count;
+      schedulers[target_sched]->add_supervised_warp_id(wid);
+    }
+
+    // Finalize all active schedulers
+    for (unsigned i = 0; i < new_sched_count; i++) {
+      schedulers[i]->done_adding_supervised_warps();
+    }
+  }
+  // Gate FUs (existing code)
+  if (m_config->sub_core_model) {
+    unsigned total_schedulers = new_sched_count;
+    
+    for (unsigned i=0; i<m_fu_active.size(); ++i) {
+      exec_unit_type_t t; 
+      unsigned lid;
+      classify_fu_index(i, t, lid);
+      
+      bool enable = true;
       unsigned schd_id = 0;
+      unsigned cusPerSched = 0;
       
       switch(t) {
         case SP:
-          cusPerSched = m_config->gpgpu_num_sp_units / num_warp_scheds;
+          cusPerSched = m_config->gpgpu_num_sp_units / total_schedulers;
           schd_id = lid / cusPerSched;
-          enable = (lid < m_active_cfg.sp) && (schd_id < m_active_cfg.sched);
+          enable = (schd_id < m_active_cfg.sched) && (lid < m_active_cfg.sp);
           break;
         case DP:
-          cusPerSched = m_config->gpgpu_num_dp_units / num_warp_scheds;
+          cusPerSched = m_config->gpgpu_num_dp_units / total_schedulers;
           schd_id = lid / cusPerSched;
-          enable = (lid < m_active_cfg.dp) && (schd_id < m_active_cfg.sched);
+          enable = (schd_id < m_active_cfg.sched) && (lid < m_active_cfg.dp);
           break;
         case INT:
-          cusPerSched = m_config->gpgpu_num_int_units / num_warp_scheds;
+          cusPerSched = m_config->gpgpu_num_int_units / total_schedulers;
           schd_id = lid / cusPerSched;
-          enable = (lid < m_active_cfg.int_u) && (schd_id < m_active_cfg.sched);
+          enable = (schd_id < m_active_cfg.sched) && (lid < m_active_cfg.int_u);
           break;
         case SFU:
-          cusPerSched = m_config->gpgpu_num_sfu_units / num_warp_scheds;
+          cusPerSched = m_config->gpgpu_num_sfu_units / total_schedulers;
           schd_id = lid / cusPerSched;
-          enable = (lid < m_active_cfg.sfu) && (schd_id < m_active_cfg.sched);
+          enable = (schd_id < m_active_cfg.sched) && (lid < m_active_cfg.sfu);
           break;
         case TENSOR:
-          cusPerSched = m_config->gpgpu_num_tensor_core_units / num_warp_scheds;
+          cusPerSched = m_config->gpgpu_num_tensor_core_units / total_schedulers;
           schd_id = lid / cusPerSched;
-          enable = (lid < m_active_cfg.tensor) && (schd_id < m_active_cfg.sched);
+          enable = (schd_id < m_active_cfg.sched) && (lid < m_active_cfg.tensor);
           break;
         case SPECIALIZED:
         case MEM:
-          enable = true; // Always enabled
+          enable = true;
           break;
         default:
           enable = true;
       }
-    } else {
-      // Non-subcore: simple per-type gating
-      switch(t) {
-        case SP: enable = (lid < m_active_cfg.sp); break;
-        case DP: enable = (lid < m_active_cfg.dp); break;
-        case INT: enable = (lid < m_active_cfg.int_u); break;
-        case SFU: enable = (lid < m_active_cfg.sfu); break;
-        case TENSOR: enable = (lid < m_active_cfg.tensor); break;
-        default: enable = true;
-      }
+      
+      m_fu_active[i] = enable;
     }
-    
-    m_fu_active[i] = enable;
   }
 
   printf("Light Reconfiguration: Active SP=%u SFU=%u DP=%u INT=%u Tensor=%u Sched=%u\n",
          m_active_cfg.sp, m_active_cfg.sfu, m_active_cfg.dp,
          m_active_cfg.int_u, m_active_cfg.tensor, m_active_cfg.sched);
 }
-
 void shader_core_ctx::create_front_pipeline_exec() {
   // pipeline_stages is the sum of normal pipeline stages and specialized_unit
   // stages * 2 (for ID and EX)
@@ -5727,13 +5834,16 @@ void shader_core_ctx::check_exec_unit_reconfiguration() {
       shader_core_ctx* core = cluster->get_core(core_id);
       if (core) {
         core->perform_light_reconfiguration(new_values);
+        core->m_reconfig_cycle = m_gpu->gpu_sim_cycle;
+        for (unsigned i = 0; i < core->schedulers.size(); i++) {
+          core->schedulers[i]->reset_issue_counter();
       }
     }
   }
-  
+}
   m_current_config++;
   printf("✓ Light reconfiguration completed instantly\n");
   printf("========================================================\n");
-}
 
+}
 /////////////////////////////////////////////////////////////////////////////
