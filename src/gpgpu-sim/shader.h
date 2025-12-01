@@ -417,6 +417,16 @@ class scheduler_unit {  // this can be copied freely, so can be used in std
   virtual void add_supervised_warp_id(int i) {
     m_supervised_warps.push_back(&warp(i));
   }
+  // unsigned get_issues_since_reset() const { return m_issues_since_reset; }
+  // void reset_issue_counter() { m_issues_since_reset = 0; }
+  
+  // Add method to get supervised warp IDs for debugging
+  const std::vector<shd_warp_t*>& get_supervised_warp_ptrs() const { 
+    return m_supervised_warps; 
+  }
+  unsigned get_supervised_warp_count() const {
+    return m_supervised_warps.size();
+  }
   const std::vector<unsigned>& get_supervised_warps() const { 
     // Convert supervised warp pointers to IDs
     static std::vector<unsigned> warp_ids;
@@ -2150,6 +2160,8 @@ class shader_core_ctx : public core_t {
   std::vector<unsigned long long> m_sched_issue_count;  // Per-scheduler issue count
   std::vector<unsigned long long> m_fu_issue_count;     // Per-FU issue count
    unsigned long long m_last_reconfig_cycle;
+    unsigned long long m_total_warps_issued;
+    unsigned long long get_total_warps_issued() const { return m_total_warps_issued; }
   
   void print_scheduler_activity() const {
     printf("\n========== Scheduler Activity (SM %u) ==========\n", m_sid);
@@ -2160,8 +2172,26 @@ class shader_core_ctx : public core_t {
     }
     printf("==============================================\n\n");
   }
+  void enable_reconfig_debug(unsigned interval = 100) {
+    m_reconfig_debug_enabled = true;
+    m_reconfig_debug_interval = interval;
+  }
+  
+  void disable_reconfig_debug() {
+    m_reconfig_debug_enabled = false;
+  }
+  
+  void print_scheduler_debug_report(unsigned long long current_cycle);
+  // Debug tracking for reconfiguration
+  // unsigned long long m_reconfig_cycle;  // Already exists
+  bool m_reconfig_debug_enabled;
+  unsigned m_reconfig_debug_interval;   // Cycles between debug prints
+  std::vector<unsigned long long> m_issues_at_reconfig;
   std::vector<bool> m_fu_active; // size == m_num_function_units after initial create
   void init_active_config_from_current();
+  unsigned decide_subcore_count(float ipc, float l1d_miss_rate);
+  void apply_subcore_reconfiguration(unsigned new_sched_count);
+  void reconfigure_schedulers(unsigned new_sched_count);
   void perform_light_reconfiguration(const ShaderCoreConfigValues& new_values);
   bool fu_is_active(unsigned fu_idx) const {
     if (fu_idx >= m_fu_active.size()) return false;

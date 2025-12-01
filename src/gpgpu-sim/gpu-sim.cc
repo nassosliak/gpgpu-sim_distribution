@@ -1152,8 +1152,13 @@ void gpgpu_sim::reinit_clock_domains(void) {
   icnt_time = 0;
   l2_time = 0;
 }
-
+bool g_stop_after_first_cta = false;
 bool gpgpu_sim::active() {
+  if (g_stop_after_first_cta) {
+    gpu_print_stat(last_streamID);
+    printf("Execution stopped, first CTA completed.\n");
+    return false;
+  }
   if (m_config.gpu_max_cycle_opt &&
       (gpu_tot_sim_cycle + gpu_sim_cycle) >= m_config.gpu_max_cycle_opt)
     return false;
@@ -1471,6 +1476,8 @@ void gpgpu_sim::gpu_print_stat(unsigned long long streamID) {
   // unsigned long long phase_insn = gpu_tot_sim_insn + gpu_sim_insn -m_last_phase_insn;
   // unsigned long long phase_cycle = std::max(1ull, gpu_tot_sim_cycle + gpu_sim_cycle - m_phase_start_cycle);
   // float phase_ipc = (float)phase_insn / phase_cycle;
+  //print total warps
+  printf("total_warps_issued = %llu\n", total_warps_issued);
   printf("gpu_phase_ipc = %12.4f\n", m_current_phase_ipc);
   printf("gpu_sim_cycle = %lld\n", gpu_sim_cycle);
   printf("gpu_sim_insn = %lld\n", gpu_sim_insn);
@@ -2000,17 +2007,26 @@ void gpgpu_sim::cycle() {
         if (m_shader_config->m_dynamic_reconfig_enabled) {
     simt_core_cluster* cluster0 = m_cluster[0];
     shader_core_ctx* core0 = cluster0->get_core(0);
-    if (core0) {
-        core0->check_exec_unit_reconfiguration();
-    }
+    // if (core0) {
+    //     core0->check_exec_unit_reconfiguration();
+    // }
 }
+
     if (phase_insn >= m_config.phase_size) {
         // Calculate cycles for this phase
         unsigned long long phase_cycle = gpu_tot_sim_cycle + gpu_sim_cycle - m_phase_start_cycle;
         
         // Calculate IPC using instructions and cycles within this phase
         m_current_phase_ipc = (float)phase_insn / std::max(1ull, phase_cycle);
-        
+        total_warps_issued = 0;
+      for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
+        for (unsigned j = 0; j < m_shader_config->n_simt_cores_per_cluster; j++) {
+          shader_core_ctx* core = m_cluster[i]->get_core(j);
+          if (core) {
+            total_warps_issued += core->get_total_warps_issued();
+          }
+        }
+      }
 
         log_phase_behavior();
         // Print stats for phase

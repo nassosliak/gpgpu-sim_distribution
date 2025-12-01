@@ -588,7 +588,7 @@ class gpgpu_sim : public gpgpu_t {
   void log_phase_behavior();
 
   void set_prop(struct cudaDeviceProp *prop);
-
+    unsigned long long total_warps_issued;
   void launch(kernel_info_t *kinfo);
   bool can_start_kernel();
   unsigned finished_kernel();
@@ -683,6 +683,7 @@ class gpgpu_sim : public gpgpu_t {
  protected:
   // clocks
   unsigned long long m_phase_start_cycle;  // Cycle count at start of current phase
+  unsigned long long m_total_warps_issued; 
   unsigned long long m_phase_start_insn;   // Instruction count at start of current phase
   unsigned long long m_last_phase_insn;    // Last instruction count at phase boundary
   float m_current_phase_ipc;
