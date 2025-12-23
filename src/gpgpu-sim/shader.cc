@@ -1103,11 +1103,13 @@ void shader_core_ctx::issue_warp(register_set &pipe_reg_set,
     // encountering the DEPBAR instruction
     bool done_flag = true;
     for (int i = 0; i < end_group; i++) {
+      if (i < m_warp[warp_id]->m_ldgdepbar_buf.size()) {
       for (int j = 0; j < m_warp[warp_id]->m_ldgdepbar_buf[i].size(); j++) {
         if (m_warp[warp_id]->m_ldgdepbar_buf[i][j].pc != -1) {
           done_flag = false;
           goto UpdateDEPBAR;
         }
+      }
       }
     }
 
