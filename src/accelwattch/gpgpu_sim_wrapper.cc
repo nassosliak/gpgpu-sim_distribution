@@ -40,7 +40,7 @@ static const char* pwr_cmp_label[] = {
     "FP_DIVP,",    "FP_SQRTP,",   "FP_LGP,",   "FP_SINP,",  "FP_EXP,",
     "DP_MULP,",    "DP_DIVP,",    "TENSORP,",  "TEXP,",     "SCHEDP,",
     "L2CP,",       "MCP,",        "NOCP,",     "DRAMP,",    "PIPEP,",
-    "IDLE_COREP,", "CONSTP",      "STATICP"};
+    "IDLE_COREP,", "CONSTP",      "STATICP",   "SUBCORE_STATICP", "MEM_STATICP"};
 
 enum pwr_cmp_t {
   IBP = 0,
@@ -76,6 +76,8 @@ enum pwr_cmp_t {
   IDLE_COREP,
   CONSTP,
   STATICP,
+  SUBCORE_STATICP,
+  MEM_STATICP,
   NUM_COMPONENTS_MODELLED
 };
 
@@ -917,6 +919,147 @@ double gpgpu_sim_wrapper::calculate_static_power() {
   return (total_static_power * per_active_core);
 }
 
+double gpgpu_sim_wrapper::calculate_memory_static_power() {
+  // Calculate static power for memory subsystem based on access patterns
+  // Only non-zero when avg_threads_per_warp == 0 (memory-only workload)
+  // When there are active warps, the workload category already includes all static power
+  
+  if (avg_threads_per_warp > 0) {
+    // When execution units are active, subcore static power covers everything
+    return 0.0;
+  }
+  
+  // Memory-only case: same logic as calculate_static_power() when avg_threads_per_warp == 0
+  double per_active_core = (num_cores - num_idle_cores) / num_cores;
+  double memory_static_power = 0.0;
+  
+  double l1_accesses = initpower_coeff[DC_RH] + initpower_coeff[DC_RM] +
+                       initpower_coeff[DC_WH] + initpower_coeff[DC_WM];
+  double l2_accesses = initpower_coeff[L2_RH] + initpower_coeff[L2_RM] +
+                       initpower_coeff[L2_WH] + initpower_coeff[L2_WM];
+  double shared_accesses = initpower_coeff[SHRD_ACC];
+  
+  // Determine memory static power based on which memory component is active
+  if (l1_accesses != 0.0)
+    memory_static_power = p->sys.static_l1_flane;
+  else if (shared_accesses != 0.0)
+    memory_static_power = p->sys.static_shared_flane;
+  else if (l2_accesses != 0.0)
+    memory_static_power = p->sys.static_l2_flane;
+  else
+    memory_static_power = p->sys.static_light_flane;
+  
+  return (memory_static_power * per_active_core);
+}
+
+double gpgpu_sim_wrapper::calculate_subcore_static_power() {
+  // Calculate static power for sub-core scalable components only
+  // This is the portion that scales with avg_threads_per_warp (thread divergence)
+  // When no active warps, this returns 0
+  double int_accesses =
+      initpower_coeff[INT_ACC] + initpower_coeff[INT_MUL24_ACC] +
+      initpower_coeff[INT_MUL32_ACC] + initpower_coeff[INT_MUL_ACC] +
+      initpower_coeff[INT_DIV_ACC];
+  double int_add_accesses = initpower_coeff[INT_ACC];
+  double int_mul_accesses =
+      initpower_coeff[INT_MUL24_ACC] + initpower_coeff[INT_MUL32_ACC] +
+      initpower_coeff[INT_MUL_ACC] + initpower_coeff[INT_DIV_ACC];
+  double fp_accesses = initpower_coeff[FP_ACC] + initpower_coeff[FP_MUL_ACC] +
+                       initpower_coeff[FP_DIV_ACC];
+  double dp_accesses = initpower_coeff[DP_ACC] + initpower_coeff[DP_MUL_ACC] +
+                       initpower_coeff[DP_DIV_ACC];
+  double sfu_accesses =
+      initpower_coeff[FP_SQRT_ACC] + initpower_coeff[FP_LG_ACC] +
+      initpower_coeff[FP_SIN_ACC] + initpower_coeff[FP_EXP_ACC];
+  double tensor_accesses = initpower_coeff[TENSOR_ACC];
+  double tex_accesses = initpower_coeff[TEX_ACC];
+  double total_static_power = 0.0;
+  double base_static_power = 0.0;
+  double lane_static_power = 0.0;
+  double per_active_core = (num_cores - num_idle_cores) / num_cores;
+
+  // If no sub-core functional unit activity (avg_threads_per_warp == 0), return 0
+  if (avg_threads_per_warp == 0) {
+    return 0.0;
+  }
+
+  /* using a linear model for thread divergence - same categorization as calculate_static_power */
+  if ((int_accesses != 0.0) && (fp_accesses != 0.0) && (dp_accesses != 0.0) &&
+      (sfu_accesses == 0.0) && (tensor_accesses == 0.0) &&
+      (tex_accesses == 0.0)) {
+    /* INT_FP_DP */
+    base_static_power = p->sys.static_cat3_flane;
+    lane_static_power = p->sys.static_cat3_addlane;
+  }
+
+  else if ((int_accesses != 0.0) && (fp_accesses != 0.0) &&
+           (dp_accesses == 0.0) && (sfu_accesses == 0.0) &&
+           (tensor_accesses != 0.0) && (tex_accesses == 0.0)) {
+    /* INT_FP_TENSOR */
+    base_static_power = p->sys.static_cat6_flane;
+    lane_static_power = p->sys.static_cat6_addlane;
+  }
+
+  else if ((int_accesses != 0.0) && (fp_accesses != 0.0) &&
+           (dp_accesses == 0.0) && (sfu_accesses != 0.0) &&
+           (tensor_accesses == 0.0) && (tex_accesses == 0.0)) {
+    /* INT_FP_SFU */
+    base_static_power = p->sys.static_cat4_flane;
+    lane_static_power = p->sys.static_cat4_addlane;
+  }
+
+  else if ((int_accesses != 0.0) && (fp_accesses != 0.0) &&
+           (dp_accesses == 0.0) && (sfu_accesses == 0.0) &&
+           (tensor_accesses == 0.0) && (tex_accesses != 0.0)) {
+    /* INT_FP_TEX */
+    base_static_power = p->sys.static_cat5_flane;
+    lane_static_power = p->sys.static_cat5_addlane;
+  }
+
+  else if ((int_accesses != 0.0) && (fp_accesses != 0.0) &&
+           (dp_accesses == 0.0) && (sfu_accesses == 0.0) &&
+           (tensor_accesses == 0.0) && (tex_accesses == 0.0)) {
+    /* INT_FP */
+    base_static_power = p->sys.static_cat2_flane;
+    lane_static_power = p->sys.static_cat2_addlane;
+  }
+
+  else if ((int_accesses != 0.0) && (fp_accesses == 0.0) &&
+           (dp_accesses == 0.0) && (sfu_accesses == 0.0) &&
+           (tensor_accesses == 0.0) && (tex_accesses == 0.0)) {
+    /* INT */
+    /* Seperating INT_ADD only and INT_MUL only from mix of INT instructions */
+    if ((int_add_accesses != 0.0) && (int_mul_accesses == 0.0)) {  // INT_ADD
+      base_static_power = p->sys.static_intadd_flane;
+      lane_static_power = p->sys.static_intadd_addlane;
+    } else if ((int_add_accesses == 0.0) &&
+               (int_mul_accesses != 0.0)) {  // INT_MUL
+      base_static_power = p->sys.static_intmul_flane;
+      lane_static_power = p->sys.static_intmul_addlane;
+    } else {  // INT_ADD+MUL
+      base_static_power = p->sys.static_cat1_flane;
+      lane_static_power = p->sys.static_cat1_addlane;
+    }
+  }
+
+  else if ((int_accesses == 0.0) && (fp_accesses == 0.0) &&
+           (dp_accesses == 0.0) && (sfu_accesses == 0.0) &&
+           (tensor_accesses == 0.0) && (tex_accesses == 0.0)) {
+    /* No sub-core functional unit activity (like LIGHT_SM case) */
+    // In this case, only memory is active, so subcore static is 0
+    return 0.0;
+  } else {
+    base_static_power =
+        p->sys.static_geomean_flane;  // GEOMEAN for other combinations
+    lane_static_power = p->sys.static_geomean_addlane;
+  }
+
+  total_static_power =
+      base_static_power + (((double)avg_threads_per_warp - 1.0) *
+                           lane_static_power);  // Linear Model
+  return (total_static_power * per_active_core);
+}
+
 void gpgpu_sim_wrapper::update_components_power() {
   update_coefficients();
 
@@ -1055,6 +1198,10 @@ void gpgpu_sim_wrapper::update_components_power() {
   //   sample_cmp_pwr[CONSTP] =
   //   (p->sys.scaling_coefficients[constant_power]-cnst_dyn);
   sample_cmp_pwr[CONSTP] = p->sys.scaling_coefficients[constant_power];
+  
+  // Calculate component static powers
+  sample_cmp_pwr[SUBCORE_STATICP] = calculate_subcore_static_power();
+  sample_cmp_pwr[MEM_STATICP] = calculate_memory_static_power();
   sample_cmp_pwr[STATICP] = calculate_static_power();
 
   if (g_dvfs_enabled) {
@@ -1064,8 +1211,12 @@ void gpgpu_sim_wrapper::update_components_power() {
         voltage_ratio;  // static power scaled by voltage_ratio
     sample_cmp_pwr[STATICP] *=
         voltage_ratio;  // static power scaled by voltage_ratio
+    sample_cmp_pwr[SUBCORE_STATICP] *=
+        voltage_ratio;  // static power scaled by voltage_ratio
+    sample_cmp_pwr[MEM_STATICP] *=
+        voltage_ratio;  // static power scaled by voltage_ratio
     for (unsigned i = 0; i < num_pwr_cmps; i++) {
-      if ((i != IDLE_COREP) && (i != STATICP)) {
+      if ((i != IDLE_COREP) && (i != STATICP) && (i != SUBCORE_STATICP) && (i != MEM_STATICP)) {
         sample_cmp_pwr[i] *=
             voltage_ratio *
             voltage_ratio;  // dynamic power scaled by square of voltage_ratio
@@ -1078,7 +1229,9 @@ void gpgpu_sim_wrapper::update_components_power() {
                           // applied, fix later
     double sum_pwr_cmp = 0;
     for (unsigned i = 0; i < num_pwr_cmps; i++) {
-      sum_pwr_cmp += sample_cmp_pwr[i];
+      if (i != SUBCORE_STATICP && i != MEM_STATICP) {  // SUBCORE_STATICP and MEM_STATICP are breakdowns, not additive
+        sum_pwr_cmp += sample_cmp_pwr[i];
+      }
     }
     bool check = false;
     check = sanity_check(sum_pwr_cmp, proc_power);
