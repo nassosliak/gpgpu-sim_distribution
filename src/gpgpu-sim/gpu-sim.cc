@@ -924,6 +924,22 @@ unsigned gpgpu_sim::finished_kernel() {
   return result;
 }
 
+//Classifier
+unsigned gpgpu_sim::decide_subcore_count(float kernel_ipc) {
+  unsigned subcore_count;
+
+  if (kernel_ipc >= 100.0f)
+    subcore_count = 4;
+  else if (kernel_ipc >= 1.0f)
+    subcore_count = 2;
+  else if (kernel_ipc >= 0.5f)
+    subcore_count = 3;
+  else
+    subcore_count = 1;
+
+  return subcore_count;
+}
+
 void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
   unsigned uid = kernel->get_uid();
   last_uid = uid;
@@ -941,6 +957,39 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
     }
   }
   assert(k != m_running_kernels.end());
+
+  //Log after first kernel instance ends, decide sub-core count, and block schedulers
+  static bool first_kernel_done = false;
+  if (!first_kernel_done) {
+    //Logs
+    printf("\n========================================\n");
+    printf("FIRST KERNEL INSTANCE COMPLETED!\n");
+    printf("Kernel UID: %u\n", uid);
+    printf("Kernel Name: %s\n", kernel->name().c_str());
+    printf("Stream ID: %llu\n", streamID);
+    printf("End Cycle: %llu\n", kernel->end_cycle);
+    unsigned long long total_cycles = kernel->end_cycle - kernel->start_cycle;
+    printf("Total Cycles: %llu\n", total_cycles);
+    printf("========================================\n\n");
+    // Calculate IPC for the first kernel
+    unsigned long long total_instructions = 0;
+    for (unsigned i = 0; i < m_shader_config->num_shader(); i++) {
+      total_instructions += m_shader_stats->m_num_sim_insn[i];
+    }
+    
+    float kernel_ipc = (total_cycles > 0) ? 
+                       (float)total_instructions / (float)total_cycles : 0.0f;
+    printf("First Kernel IPC: %.4f\n", kernel_ipc);
+
+    //Decide Sub-core count
+    unsigned subcore_count = decide_subcore_count(kernel_ipc);
+    printf("Decided Sub-core Count: %u\n", subcore_count);
+    set_active_subcore_limit(subcore_count);
+    activate_subcore_limit();
+    set_subcore_limit_start_cycle(gpu_tot_sim_cycle + gpu_sim_cycle);
+    
+    first_kernel_done = true;
+  }
 }
 
 void gpgpu_sim::stop_all_running_kernels() {
@@ -1015,6 +1064,9 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
 
   gpu_kernel_time.clear();
 
+  m_active_subcore_limit = 4;  // Default to all sub-cores active
+  m_subcore_limit_active = false;
+  m_subcore_limit_start_cycle = 0;
   // TODO: somehow move this logic to the sst_gpgpu_sim constructor?
   if (!m_config.is_SST_mode()) {
     // Init memory if not in SST mode

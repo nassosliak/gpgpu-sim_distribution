@@ -578,13 +578,19 @@ class gpgpu_sim : public gpgpu_t {
   gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx);
 
   void set_prop(struct cudaDeviceProp *prop);
-
+  unsigned decide_subcore_count(float kernel_ipc);
   void launch(kernel_info_t *kinfo);
   bool can_start_kernel();
   unsigned finished_kernel();
   void set_kernel_done(kernel_info_t *kernel);
   void stop_all_running_kernels();
-
+  // Sub-core limiting for dynamic scheduling
+  unsigned get_active_subcore_limit() const { return m_active_subcore_limit; }
+  void set_active_subcore_limit(unsigned limit) { m_active_subcore_limit = limit; }
+  bool is_subcore_limit_active() const { return m_subcore_limit_active; }
+  void activate_subcore_limit() { m_subcore_limit_active = true; }
+  unsigned long long get_subcore_limit_start_cycle() const { return m_subcore_limit_start_cycle; }
+  void set_subcore_limit_start_cycle(unsigned long long cycle) { m_subcore_limit_start_cycle = cycle; }
   void init();
   void cycle();
   bool active();
@@ -682,7 +688,9 @@ class gpgpu_sim : public gpgpu_t {
   void shader_print_scheduler_stat(FILE *fout, bool print_dynamic_info) const;
   void visualizer_printstat();
   void print_shader_cycle_distro(FILE *fout) const;
-
+  unsigned m_active_subcore_limit;
+  bool m_subcore_limit_active;
+  unsigned long long m_subcore_limit_start_cycle;
   void gpgpu_debug();
 
  protected:
