@@ -591,6 +591,16 @@ class gpgpu_sim : public gpgpu_t {
   void activate_subcore_limit() { m_subcore_limit_active = true; }
   unsigned long long get_subcore_limit_start_cycle() const { return m_subcore_limit_start_cycle; }
   void set_subcore_limit_start_cycle(unsigned long long cycle) { m_subcore_limit_start_cycle = cycle; }
+  void record_warp_issue(unsigned sm_id, unsigned sched_id, unsigned num_issued) {
+    if (sm_id < m_warp_issues_per_scheduler.size() &&
+        sched_id < m_warp_issues_per_scheduler[sm_id].size()) {
+      m_warp_issues_per_scheduler[sm_id][sched_id] += num_issued;
+    }
+  }
+  // Warp issue logging
+  void init_warp_issue_logging();
+  void log_warp_issues();
+  void reset_warp_issue_counters();
   void init();
   void cycle();
   bool active();
@@ -691,6 +701,13 @@ class gpgpu_sim : public gpgpu_t {
   unsigned m_active_subcore_limit;
   bool m_subcore_limit_active;
   unsigned long long m_subcore_limit_start_cycle;
+
+  // Warp issue tracking
+  bool m_warp_issue_logging_enabled;
+  unsigned long long m_last_warp_issue_log_cycle;
+  static const unsigned WARP_ISSUE_LOG_INTERVAL = 100;
+  std::vector<std::vector<unsigned>> m_warp_issues_per_scheduler; // [SM][scheduler]
+
   void gpgpu_debug();
 
  protected:

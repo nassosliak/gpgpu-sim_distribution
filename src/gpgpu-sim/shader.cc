@@ -1257,51 +1257,28 @@ void scheduler_unit::order_by_priority(
     abort();
   }
 }
-
+void scheduler_unit::record_warp_issue(unsigned num_issued) {
+  if (!m_shader->get_gpu()->is_subcore_limit_active()) return;
+  
+  gpgpu_sim* gpu = dynamic_cast<gpgpu_sim*>(m_shader->get_gpu());
+  if (!gpu) return;
+  
+  unsigned sm_id = m_shader->get_sid();
+  unsigned sched_id = m_id;
+  
+  // Call the public accessor method on gpgpu_sim
+  gpu->record_warp_issue(sm_id, sched_id, num_issued);
+}
 void scheduler_unit::cycle() {
   SCHED_DPRINTF("scheduler_unit::cycle()\n");
   bool valid_inst =
       false;  // there was one warp with a valid instruction to issue (didn't
               // require flush due to control hazard)
+  bool ready_inst = false;   // of the valid instructions, there was one not
                              // waiting for pending register writes
-                             bool ready_inst = false;
   bool issued_inst = false;  // of these we issued one
 
-  // Check if this scheduler (sub-core) should be blocked for NEW warps due to sub-core limiting
-  gpgpu_sim *gpu = m_shader->get_gpu();
-  bool subcore_blocked_for_new_warps = false;
-  if (gpu->is_subcore_limit_active()) {
-    unsigned active_limit = gpu->get_active_subcore_limit();
-    if ((unsigned)m_id >= active_limit) {
-      subcore_blocked_for_new_warps = true;
-    }
-  }
-
-  // Log subcore limit status once per 1000 cycles (for debugging)
-  static unsigned long long last_log_cycle = 0;
-  unsigned long long current_cycle = gpu->gpu_tot_sim_cycle + gpu->gpu_sim_cycle;
-  
-  if (gpu->is_subcore_limit_active()) {
-    // Print every 10 cycles starting from when the limit becomes active
-    unsigned long long start_cycle = gpu->get_subcore_limit_start_cycle();
-    if (current_cycle >= start_cycle && 
-        (current_cycle - start_cycle) % 10 == 0 && 
-        current_cycle != last_log_cycle) {
-      
-      // printf("SUBCORE_LIMIT_STATUS: SM=%u, Sched=%u, cycle=%llu, limit=%u, start_cycle=%llu, blocked=%d\n",
-      //        m_shader->get_sid(), m_id, current_cycle, 
-      //        gpu->get_active_subcore_limit(), start_cycle,
-      //        subcore_blocked_for_new_warps);
-      
-      // Update last_log_cycle only once per cycle (when m_id == 0)
-      if (m_id == 0) {
-        last_log_cycle = current_cycle;
-      }
-    }
-  }
-
   order_warps();
-  unsigned issued_warp_id = 0;
   for (std::vector<shd_warp_t *>::const_iterator iter =
            m_next_cycle_prioritized_warps.begin();
        iter != m_next_cycle_prioritized_warps.end(); iter++) {
@@ -1309,28 +1286,9 @@ void scheduler_unit::cycle() {
     if ((*iter) == NULL || (*iter)->done_exit()) {
       continue;
     }
-
-    unsigned warp_id = (*iter)->get_warp_id();
-    
-    // If this sub-core is blocked for new warps, only allow warps that were
-    // already running (have instructions in pipeline or pending operations)
-    // to continue execution to avoid deadlocks
-    if (subcore_blocked_for_new_warps) {
-      // Check if this warp was started before the sub-core limit was activated
-      // A warp is considered "already running" if it has instructions in pipeline
-      // or has pending memory operations
-      bool warp_already_running = warp(warp_id).inst_in_pipeline() || 
-                                   !warp(warp_id).stores_done() ||
-                                   warp(warp_id).get_n_atomic() > 0;
-      
-      if (!warp_already_running) {
-        continue;  // Skip this warp, try next one
-      }
-    }
-
     SCHED_DPRINTF("Testing (warp_id %u, dynamic_warp_id %u)\n",
                   (*iter)->get_warp_id(), (*iter)->get_dynamic_warp_id());
-    // unsigned warp_id = (*iter)->get_warp_id();
+    unsigned warp_id = (*iter)->get_warp_id();
     unsigned checked = 0;
     unsigned issued = 0;
     exec_unit_type_t previous_issued_inst_exec_type = exec_unit_type_t::NONE;
@@ -1585,6 +1543,7 @@ void scheduler_unit::cycle() {
       checked++;
     }
     if (issued) {
+      record_warp_issue(issued);
       // This might be a bit inefficient, but we need to maintain
       // two ordered list for proper scheduler execution.
       // We could remove the need for this loop by associating a
@@ -1605,36 +1564,6 @@ void scheduler_unit::cycle() {
         m_stats->dual_issue_nums[m_id]++;
       else
         abort();  // issued should be > 0
-      //   issued_warp_id = warp_id;
-      //   if (gpu->is_subcore_limit_active()) {
-      //   unsigned long long current_cycle = gpu->gpu_tot_sim_cycle + gpu->gpu_sim_cycle;
-      //   unsigned long long start_cycle = gpu->get_subcore_limit_start_cycle();
-      //   if (current_cycle >= start_cycle + 100 && 
-      //       ((current_cycle - start_cycle - 10) % 10 == 0)) {
-      //     const char *warp_type = subcore_blocked_for_new_warps ? "DRAINING" : "ACTIVE";
-      //     printf("SUBCORE_ISSUE: SM %d, Scheduler %d (%s) issued warp %u (%u insns) @ cycle %llu\n",
-      //            m_shader->get_sid(), m_id, warp_type, warp_id, issued, current_cycle);
-      //   }
-      // }
-      // Log warp issues in compact format
-  static std::map<unsigned long long, bool> logged_cycles;
-  unsigned long long current_cycle = gpu->gpu_tot_sim_cycle + gpu->gpu_sim_cycle;
-  
-  if (logged_cycles.find(current_cycle) == logged_cycles.end()) {
-    // This is the first scheduler on this cycle - print header
-    printf("\n==Warp issuing log== Cycle: %llu\n", current_cycle);
-    logged_cycles[current_cycle] = true;
-    
-    // Clean up old entries to avoid memory bloat
-    if (logged_cycles.size() > 10000) {
-      auto it = logged_cycles.begin();
-      std::advance(it, 5000);
-      logged_cycles.erase(logged_cycles.begin(), it);
-    }
-  }
-  
-  // Print this scheduler's issues
-  printf("SM %u : SC %u : %u issues\n", m_shader->get_sid(), m_id, issued);
 
       break;
     }
@@ -3748,6 +3677,7 @@ void shader_core_config::set_pipeline_latency() {
 
 void shader_core_ctx::cycle() {
   if (!isactive() && get_not_completed() == 0) return;
+
   m_stats->shader_cycles[m_sid]++;
   writeback();
   execute();

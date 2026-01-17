@@ -987,7 +987,7 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
     set_active_subcore_limit(subcore_count);
     activate_subcore_limit();
     set_subcore_limit_start_cycle(gpu_tot_sim_cycle + gpu_sim_cycle);
-    
+    init_warp_issue_logging();
     first_kernel_done = true;
   }
 }
@@ -1067,6 +1067,8 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   m_active_subcore_limit = 4;  // Default to all sub-cores active
   m_subcore_limit_active = false;
   m_subcore_limit_start_cycle = 0;
+  m_warp_issue_logging_enabled = false;
+  m_last_warp_issue_log_cycle = 0;
   // TODO: somehow move this logic to the sst_gpgpu_sim constructor?
   if (!m_config.is_SST_mode()) {
     // Init memory if not in SST mode
@@ -1106,6 +1108,74 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   // Jin: functional simulation for CDP
   m_functional_sim = false;
   m_functional_sim_kernel = NULL;
+}
+
+void gpgpu_sim::init_warp_issue_logging() {
+  if (!m_subcore_limit_active) return;
+  
+  m_warp_issue_logging_enabled = true;
+  m_last_warp_issue_log_cycle = gpu_tot_sim_cycle + gpu_sim_cycle;
+  
+  // Initialize counters for each SM and scheduler
+  m_warp_issues_per_scheduler.clear();
+  m_warp_issues_per_scheduler.resize(m_shader_config->num_shader());
+  for (unsigned i = 0; i < m_shader_config->num_shader(); i++) {
+    m_warp_issues_per_scheduler[i].resize(m_shader_config->gpgpu_num_sched_per_core, 0);
+  }
+  
+  printf("\n========================================\n");
+  printf("WARP ISSUE LOGGING STARTED\n");
+  printf("Active Sub-cores: %u out of %u\n", m_active_subcore_limit, m_shader_config->gpgpu_num_sched_per_core);
+  printf("Logging Interval: %u cycles\n", WARP_ISSUE_LOG_INTERVAL);
+  printf("========================================\n\n");
+}
+
+void gpgpu_sim::reset_warp_issue_counters() {
+  for (unsigned i = 0; i < m_warp_issues_per_scheduler.size(); i++) {
+    for (unsigned j = 0; j < m_warp_issues_per_scheduler[i].size(); j++) {
+      m_warp_issues_per_scheduler[i][j] = 0;
+    }
+  }
+}
+
+void gpgpu_sim::log_warp_issues() {
+  if (!m_warp_issue_logging_enabled) return;
+  
+  unsigned long long current_cycle = gpu_tot_sim_cycle + gpu_sim_cycle;
+  unsigned long long elapsed_since_limit = current_cycle - m_subcore_limit_start_cycle;
+  
+  // Check if we should log (100 cycles after sub-core decision + every 100 cycles thereafter)
+  if (elapsed_since_limit < 100) return;
+  
+  if ((current_cycle - m_last_warp_issue_log_cycle) >= WARP_ISSUE_LOG_INTERVAL) {
+    printf("\n========== Warp Issues Log ==========\n");
+    printf("Cycle Range: %llu - %llu\n", m_last_warp_issue_log_cycle, current_cycle);
+    printf("Active Sub-core Limit: %u\n", m_active_subcore_limit);
+    printf("=====================================\n");
+    
+    for (unsigned sm_id = 0; sm_id < m_shader_config->num_shader(); sm_id++) {
+      printf("SM %u: ", sm_id);
+      
+      for (unsigned sched_id = 0; sched_id < m_shader_config->gpgpu_num_sched_per_core; sched_id++) {
+        unsigned issues = m_warp_issues_per_scheduler[sm_id][sched_id];
+        bool is_active = (sched_id < m_active_subcore_limit);
+        
+        printf("Sub-Core %u: %u Issues (%s)", 
+               sched_id, 
+               issues, 
+               is_active ? "Yes" : "No");
+        
+        if (sched_id < m_shader_config->gpgpu_num_sched_per_core - 1) {
+          printf(", ");
+        }
+      }
+      printf("\n");
+    }
+    printf("=====================================\n\n");
+    
+    m_last_warp_issue_log_cycle = current_cycle;
+    reset_warp_issue_counters();
+  }
 }
 
 void sst_gpgpu_sim::SST_receive_mem_reply(unsigned core_id, void *mem_req) {
@@ -2026,6 +2096,7 @@ void gpgpu_sim::cycle() {
   int clock_mask = next_clock_domain();
 
   if (clock_mask & CORE) {
+    log_warp_issues();
     // shader core loading (pop from ICNT into core) follows CORE clock
     for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++)
       m_cluster[i]->icnt_cycle();
