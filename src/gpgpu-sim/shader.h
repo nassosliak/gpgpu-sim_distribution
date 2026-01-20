@@ -395,7 +395,8 @@ class scheduler_unit {  // this can be copied freely, so can be used in std
         m_tensor_core_out(tensor_core_out),
         m_mem_out(mem_out),
         m_spec_cores_out(spec_cores_out),
-        m_id(id) {}
+        m_id(id),
+        m_is_active(true) {}
   virtual ~scheduler_unit() {}
   virtual void add_supervised_warp_id(int i) {
     m_supervised_warps.push_back(&warp(i));
@@ -449,6 +450,11 @@ class scheduler_unit {  // this can be copied freely, so can be used in std
 
   int get_schd_id() const { return m_id; }
 
+  // Sub-core limiting: block/unblock scheduler from issuing new warps
+  void set_active(bool active) { m_is_active = active; }
+  bool is_active() const { return m_is_active; }
+  void clear_supervised_warps() { m_supervised_warps.clear(); }
+
  protected:
   virtual void do_on_warp_issued(
       unsigned warp_id, unsigned num_issued,
@@ -487,6 +493,7 @@ class scheduler_unit {  // this can be copied freely, so can be used in std
   unsigned m_current_turn_warp;
 
   int m_id;
+  bool m_is_active;  // True if scheduler can issue new warps (used for sub-core limiting)
 };
 
 class lrr_scheduler : public scheduler_unit {
@@ -2112,6 +2119,11 @@ class shader_core_ctx : public core_t {
   float get_current_occupancy(unsigned long long &active,
                               unsigned long long &total) const;
 
+  // Sub-core limiting: manage active schedulers and warp assignment
+  void set_active_schedulers(unsigned num_active_schedulers);
+  void reinit_warps_for_active_schedulers();
+  unsigned get_num_active_schedulers() const { return m_num_active_schedulers; }
+
   // used by pipeline timing model components:
   // modifiers
   void mem_instruction_stats(const warp_inst_t &inst);
@@ -2537,6 +2549,7 @@ class shader_core_ctx : public core_t {
 
   // schedule
   std::vector<scheduler_unit *> schedulers;
+  unsigned m_num_active_schedulers;  // Number of active schedulers for sub-core limiting
 
   // issue
   unsigned int Issue_Prio;

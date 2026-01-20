@@ -2033,6 +2033,13 @@ void shader_core_ctx::issue_block2core(kernel_info_t &kernel) {
   init_warps(free_cta_hw_id, start_thread, end_thread, ctaid, cta_size, kernel);
   m_n_active_cta++;
 
+  // Sub-core limiting: reassign warps to active schedulers based on GPU decision
+  if (m_gpu->is_subcore_limit_active()) {
+    unsigned num_active_schedulers = m_gpu->get_active_subcore_limit();
+    set_active_schedulers(num_active_schedulers);
+    reinit_warps_for_active_schedulers();
+  }
+
   shader_CTA_count_log(m_sid, 1);
   SHADER_DPRINTF(LIVENESS,
                  "GPGPU-Sim uArch: cta:%2u, start_tid:%4u, end_tid:%4u, "

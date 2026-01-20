@@ -268,6 +268,41 @@ void shader_core_ctx::create_schedulers() {
   }
 }
 
+void shader_core_ctx::set_active_schedulers(unsigned num_active_schedulers) {
+  // Set which schedulers are active for sub-core limiting
+  assert(num_active_schedulers <= m_config->gpgpu_num_sched_per_core);
+  m_num_active_schedulers = num_active_schedulers;
+  
+  // Mark active and inactive schedulers
+  for (unsigned i = 0; i < schedulers.size(); i++) {
+    if (i < num_active_schedulers) {
+      schedulers[i]->set_active(true);
+    } else {
+      schedulers[i]->set_active(false);
+    }
+  }
+}
+
+void shader_core_ctx::reinit_warps_for_active_schedulers() {
+  // Reassign warps to only active schedulers based on current active scheduler count
+  // Clear all supervised warps from all schedulers
+  for (unsigned i = 0; i < schedulers.size(); i++) {
+    schedulers[i]->clear_supervised_warps();
+  }
+  
+  // Reassign warps only to active schedulers
+  for (unsigned i = 0; i < m_warp.size(); i++) {
+    // Distribute warps evenly among active schedulers only
+    unsigned active_scheduler_id = i % m_num_active_schedulers;
+    schedulers[active_scheduler_id]->add_supervised_warp_id(i);
+  }
+  
+  // Reset the issued iterator for all schedulers
+  for (unsigned i = 0; i < schedulers.size(); ++i) {
+    schedulers[i]->done_adding_supervised_warps();
+  }
+}
+
 void shader_core_ctx::create_exec_pipeline() {
   // op collector configuration
   enum { SP_CUS, DP_CUS, SFU_CUS, TENSOR_CORE_CUS, INT_CUS, MEM_CUS, GEN_CUS };
@@ -501,6 +536,9 @@ shader_core_ctx::shader_core_ctx(class gpgpu_sim *gpu,
   m_occupied_ctas = 0;
   m_occupied_hwtid.reset();
   m_occupied_cta_to_hwtid.clear();
+
+  // Sub-core limiting: initialize with all schedulers active
+  m_num_active_schedulers = config->gpgpu_num_sched_per_core;
 }
 
 void shader_core_ctx::reinit(unsigned start_thread, unsigned end_thread,
@@ -1132,7 +1170,10 @@ void shader_core_ctx::issue() {
   unsigned j;
   for (unsigned i = 0; i < schedulers.size(); i++) {
     j = (Issue_Prio + i) % schedulers.size();
-    schedulers[j]->cycle();
+    // Only call cycle() if the scheduler is active (for sub-core limiting)
+    if (schedulers[j]->is_active()) {
+      schedulers[j]->cycle();
+    }
   }
   Issue_Prio = (Issue_Prio + 1) % schedulers.size();
 
@@ -1585,6 +1626,15 @@ void scheduler_unit::do_on_warp_issued(
   m_stats->event_warp_issued(m_shader->get_sid(), warp_id, num_issued,
                              warp(warp_id).get_dynamic_warp_id());
   warp(warp_id).ibuffer_step();
+  
+  // Log if warp is issued in disabled sub-core
+  if (m_shader->get_gpu()->is_subcore_limit_active()) {
+    gpgpu_sim* gpu = dynamic_cast<gpgpu_sim*>(m_shader->get_gpu());
+    if (gpu && (unsigned)m_id >= gpu->get_active_subcore_limit()) {
+      fprintf(stderr, "[LOG] Warp issued in disabled sub-core! SM %u, Scheduler %d (disabled, limit=%u), Warp %u, Cycle %llu\n",
+              m_shader->get_sid(), m_id, gpu->get_active_subcore_limit(), warp_id, gpu->gpu_sim_cycle);
+    }
+  }
 }
 
 bool scheduler_unit::sort_warps_by_oldest_dynamic_id(shd_warp_t *lhs,
