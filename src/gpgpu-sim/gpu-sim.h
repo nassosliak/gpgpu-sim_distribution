@@ -578,7 +578,9 @@ class gpgpu_sim : public gpgpu_t {
   gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx);
 
   void set_prop(struct cudaDeviceProp *prop);
-  unsigned decide_subcore_count(float kernel_ipc);
+  unsigned decide_subcore_count(unsigned long long total_insn,
+                                unsigned long long total_cycles,
+                                class gpgpu_sim_wrapper* power_wrapper);
   void launch(kernel_info_t *kinfo);
   bool can_start_kernel();
   unsigned finished_kernel();

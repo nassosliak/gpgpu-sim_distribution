@@ -75,6 +75,10 @@
 class gpgpu_sim_wrapper {};
 #endif
 
+// ML-based subcore classifier (must come after power_interface.h)
+#include "subcore_classifier.h"
+#include "subcore_classifier_integration.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
@@ -924,20 +928,21 @@ unsigned gpgpu_sim::finished_kernel() {
   return result;
 }
 
-//Classifier
-unsigned gpgpu_sim::decide_subcore_count(float kernel_ipc) {
-  unsigned subcore_count;
-
-  if (kernel_ipc >= 100.0f)
-    subcore_count = 4;
-  else if (kernel_ipc >= 1.0f)
-    subcore_count = 2;
-  else if (kernel_ipc >= 0.5f)
-    subcore_count = 3;
-  else
-    subcore_count = 1;
-
-  return subcore_count;
+//Classifier - ML-based subcore prediction
+unsigned gpgpu_sim::decide_subcore_count(unsigned long long total_insn,
+                                        unsigned long long total_cycles,
+                                        class gpgpu_sim_wrapper* power_wrapper) {
+  // Create feature extractor
+  SubcoreFeatureExtractor extractor(this, m_shader_config, m_shader_stats);
+  
+  // Predict optimal subcore count using ML model with probabilities
+  int predicted_subcores = extractor.predict_optimal_subcores_with_proba(power_wrapper);
+  
+  // Validate the prediction is within valid range
+  if (predicted_subcores < 1) predicted_subcores = 1;
+  if (predicted_subcores > 4) predicted_subcores = 4;
+  
+  return static_cast<unsigned>(predicted_subcores);
 }
 
 void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
@@ -971,7 +976,8 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
     unsigned long long total_cycles = kernel->end_cycle - kernel->start_cycle;
     printf("Total Cycles: %llu\n", total_cycles);
     printf("========================================\n\n");
-    // Calculate IPC for the first kernel
+    
+    // Calculate total instructions for the first kernel
     unsigned long long total_instructions = 0;
     for (unsigned i = 0; i < m_shader_config->num_shader(); i++) {
       total_instructions += m_shader_stats->m_num_sim_insn[i];
@@ -980,10 +986,13 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
     float kernel_ipc = (total_cycles > 0) ? 
                        (float)total_instructions / (float)total_cycles : 0.0f;
     printf("First Kernel IPC: %.4f\n", kernel_ipc);
+    printf("First Kernel Instructions: %llu\n", total_instructions);
 
-    //Decide Sub-core count
-    unsigned subcore_count = decide_subcore_count(kernel_ipc);
-    printf("Decided Sub-core Count: %u\n", subcore_count);
+    //Decide Sub-core count using ML classifier with direct power wrapper access
+    unsigned subcore_count = decide_subcore_count(
+        total_instructions, total_cycles, m_gpgpusim_wrapper);
+    
+    printf("ML Predicted Sub-core Count: %u\n", subcore_count);
     set_active_subcore_limit(subcore_count);
     activate_subcore_limit();
     set_subcore_limit_start_cycle(gpu_tot_sim_cycle + gpu_sim_cycle);

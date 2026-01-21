@@ -151,6 +151,29 @@ class gpgpu_sim_wrapper {
   bool sanity_check(double a, double b);
 
   PowerscalingCoefficients* get_scaling_coeffs();
+  
+  // Getter methods for accessing average kernel performance counters
+  // Used by ML classifier for feature extraction
+  double get_kernel_perf_counter_avg(int counter_idx) const {
+    if (counter_idx >= 0 && counter_idx < (int)kernel_cmp_perf_counters.size()) {
+      return kernel_cmp_perf_counters[counter_idx].avg;
+    }
+    return 0.0;
+  }
+  
+  // Getter methods for accessing average kernel power components
+  // Used by ML classifier for feature extraction
+  double get_kernel_power_component_avg(int comp_idx) const {
+    if (comp_idx >= 0 && comp_idx < (int)kernel_cmp_pwr.size()) {
+      return kernel_cmp_pwr[comp_idx].avg;
+    }
+    return 0.0;
+  }
+  
+  // Get the number of kernel samples (for normalization)
+  int get_kernel_sample_count() const {
+    return kernel_sample_count;
+  }
 
  private:
   void print_steady_state(int position, double init_val);
