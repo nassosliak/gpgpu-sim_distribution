@@ -71,8 +71,17 @@
 
 #ifdef GPGPUSIM_POWER_MODEL
 #include "power_interface.h"
+#include "subcore_classifier_integration.h"
 #else
 class gpgpu_sim_wrapper {};
+class SubcoreFeatureExtractor {
+ public:
+  SubcoreFeatureExtractor(const gpgpu_sim*, const shader_core_config*,
+                          const shader_core_stats*) {}
+  int predict_optimal_subcores_with_proba(class gpgpu_sim_wrapper*) {
+    return 2;
+  }
+};
 #endif
 
 #include <stdio.h>
@@ -765,6 +774,13 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
                          "-1");
   gpgpu_ctx->stats->ptx_file_line_stats_options(opp);
 
+  // Sub-core reconfiguration
+  option_parser_register(opp, "-reconfiguration_enabled", OPT_BOOL,
+                       &g_reconfiguration_enabled,
+                       "Enable ML-based sub-core reconfiguration and warp issue logging "
+                       "(1=On (default), 0=Off)",
+                       "1");
+
   // Jin: kernel launch latency
   option_parser_register(opp, "-gpgpu_kernel_launch_latency", OPT_INT32,
                          &(gpgpu_ctx->device_runtime->g_kernel_launch_latency),
@@ -925,19 +941,22 @@ unsigned gpgpu_sim::finished_kernel() {
 }
 
 //Classifier
-unsigned gpgpu_sim::decide_subcore_count(float kernel_ipc) {
-  unsigned subcore_count;
-
-  if (kernel_ipc >= 100.0f)
-    subcore_count = 4;
-  else if (kernel_ipc >= 1.0f)
-    subcore_count = 2;
-  else if (kernel_ipc >= 0.5f)
-    subcore_count = 3;
-  else
-    subcore_count = 1;
-
-  return subcore_count;
+unsigned gpgpu_sim::decide_subcore_count(unsigned long long total_insn,
+                                        unsigned long long total_cycles,
+                                        class gpgpu_sim_wrapper* power_wrapper) {
+  (void)total_insn;
+  (void)total_cycles;
+  // Create feature extractor
+  SubcoreFeatureExtractor extractor(this, m_shader_config, m_shader_stats);
+  
+  // Predict optimal subcore count using ML model with probabilities
+  int predicted_subcores = extractor.predict_optimal_subcores_with_proba(power_wrapper);
+  
+  // Validate the prediction is within valid range
+  if (predicted_subcores < 1) predicted_subcores = 1;
+  if (predicted_subcores > 4) predicted_subcores = 4;
+  
+  return static_cast<unsigned>(predicted_subcores);
 }
 
 void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
@@ -960,7 +979,7 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
 
   //Log after first kernel instance ends, decide sub-core count, and block schedulers
   static bool first_kernel_done = false;
-  if (!first_kernel_done) {
+  if (!first_kernel_done && m_config.g_reconfiguration_enabled) {
     //Logs
     printf("\n========================================\n");
     printf("FIRST KERNEL INSTANCE COMPLETED!\n");
@@ -982,7 +1001,12 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
     printf("First Kernel IPC: %.4f\n", kernel_ipc);
 
     //Decide Sub-core count
-    unsigned subcore_count = decide_subcore_count(kernel_ipc);
+    class gpgpu_sim_wrapper* power_wrapper = nullptr;
+  #ifdef GPGPUSIM_POWER_MODEL
+    power_wrapper = m_gpgpusim_wrapper;
+  #endif
+    unsigned subcore_count = decide_subcore_count(
+      total_instructions, total_cycles, power_wrapper);
     printf("Decided Sub-core Count: %u\n", subcore_count);
     set_active_subcore_limit(subcore_count);
     activate_subcore_limit();
