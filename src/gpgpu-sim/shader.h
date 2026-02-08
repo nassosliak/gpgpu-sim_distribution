@@ -403,6 +403,11 @@ class scheduler_unit {  // this can be copied freely, so can be used in std
   virtual void done_adding_supervised_warps() {
     m_last_supervised_issued = m_supervised_warps.end();
   }
+  virtual void clear_supervised_warps() {
+    m_supervised_warps.clear();
+    m_next_cycle_prioritized_warps.clear();
+    m_last_supervised_issued = m_supervised_warps.end();
+  }
   void record_warp_issue(unsigned num_issued);
 
   // The core scheduler cycle method is meant to be common between
@@ -600,6 +605,12 @@ class two_level_active_scheduler : public scheduler_unit {
     }
   }
   virtual void done_adding_supervised_warps() {
+    m_last_supervised_issued = m_supervised_warps.begin();
+  }
+  virtual void clear_supervised_warps() {
+    m_supervised_warps.clear();
+    m_next_cycle_prioritized_warps.clear();
+    m_pending_warps.clear();
     m_last_supervised_issued = m_supervised_warps.begin();
   }
 
@@ -2073,6 +2084,7 @@ class shader_core_ctx : public core_t {
 
   void cache_flush();
   void cache_invalidate();
+  void reassign_warps_to_schedulers();
   void accept_fetch_response(mem_fetch *mf);
   void accept_ldst_unit_response(class mem_fetch *mf);
   void broadcast_barrier_reduction(unsigned cta_id, unsigned bar_id,
@@ -2537,6 +2549,7 @@ class shader_core_ctx : public core_t {
 
   // schedule
   std::vector<scheduler_unit *> schedulers;
+  std::vector<int> m_warp_scheduler_assignment;  // tracks which scheduler each warp slot is assigned to
 
   // issue
   unsigned int Issue_Prio;
@@ -2623,6 +2636,7 @@ class simt_core_cluster {
   unsigned issue_block2core();
   void cache_flush();
   void cache_invalidate();
+  void reassign_warps_to_schedulers();
   bool icnt_injection_buffer_full(unsigned size, bool write);
   void icnt_inject_request_packet(class mem_fetch *mf);
   void update_icnt_stats(class mem_fetch *mf);

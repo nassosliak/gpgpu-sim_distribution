@@ -154,6 +154,7 @@ class gpgpu_sim_wrapper {
   int get_kernel_sample_count() const;
   double get_kernel_perf_counter_avg(int perf_counter_idx) const;
   double get_kernel_power_component_avg(int power_comp_idx) const;
+  double get_kernel_avg_threads_per_warp() const;
 
  private:
   void print_steady_state(int position, double init_val);

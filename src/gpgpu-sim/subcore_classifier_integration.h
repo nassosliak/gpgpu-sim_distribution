@@ -32,14 +32,21 @@ public:
             return false;
         }
         
-          // Debug: Check sample count
           int sample_count = power_wrapper->get_kernel_sample_count();
-          printf("DEBUG: Power wrapper sample count = %d\n", sample_count);
+          if (sample_count <= 0) {
+              printf("Warning: No power samples collected yet\n");
+              return false;
+          }
 
           // Feature order MUST match DecisionTree::FEATURE_NAMES:
-          //   [0] gpu_ipc, [1] gpu_occupancy, [2] gpu_sim_insn,
-          //   [3] gpu_sim_cycle, [4] avg_INTP, [5] avg_INT_MULP,
-          //   [6] avg_INT_ACC, [7] avg_INT_MUL_ACC
+          //   [0] gpu_ipc, [1] gpu_occupancy, [2] avg_RFP,
+          //   [3] avg_INTP, [4] avg_SCHEDP, [5] avg_FP_INT,
+          //   [6] avg_INT_ACC, [7] avg_threads_per_warp
+          //
+          // Power component indices (from pwr_cmp_t enum):
+          //   RFP=6, INTP=7, SCHEDP=24
+          // Performance counter indices (from perf_count_t enum):
+          //   FP_INT=1, INT_ACC=16
 
           // Feature 0: gpu_ipc
           features[0] = (m_gpu->gpu_sim_cycle > 0)
@@ -50,54 +57,25 @@ public:
           // Feature 1: gpu_occupancy
           features[1] = m_gpu->gpu_occupancy.get_occ_fraction() * 100.0;
 
-          // Feature 2: gpu_sim_insn
-          features[2] = static_cast<double>(m_gpu->gpu_sim_insn);
+          // Feature 2: avg_RFP (power component index RFP = 6)
+          features[2] = power_wrapper->get_kernel_power_component_avg(6);
 
-          // Feature 3: gpu_sim_cycle
-          features[3] = static_cast<double>(m_gpu->gpu_sim_cycle);
+          // Feature 3: avg_INTP (power component index INTP = 7)
+          features[3] = power_wrapper->get_kernel_power_component_avg(7);
 
-          // Feature 4: avg_INTP (power component index INTP = 7)
-          features[4] = get_power_component_avg(power_wrapper, 7);
+          // Feature 4: avg_SCHEDP (power component index SCHEDP = 24)
+          features[4] = power_wrapper->get_kernel_power_component_avg(24);
 
-          // Feature 5: avg_INT_MULP (power component index INT_MULP = 12)
-          features[5] = get_power_component_avg(power_wrapper, 12);
+          // Feature 5: avg_FP_INT (performance counter index FP_INT = 1)
+          features[5] = power_wrapper->get_kernel_perf_counter_avg(1);
 
           // Feature 6: avg_INT_ACC (performance counter index INT_ACC = 16)
-          features[6] = get_perf_counter_avg(power_wrapper, 16);
+          features[6] = power_wrapper->get_kernel_perf_counter_avg(16);
 
-          // Feature 7: avg_INT_MUL_ACC (performance counter index INT_MUL_ACC = 21)
-          features[7] = get_perf_counter_avg(power_wrapper, 21);
+          // Feature 7: avg_threads_per_warp
+          features[7] = power_wrapper->get_kernel_avg_threads_per_warp();
         
         return true;
-    }
-    
-private:
-    // Helper function to get average performance counter from power wrapper
-    double get_perf_counter_avg(class gpgpu_sim_wrapper* wrapper, int perf_counter_idx) {
-        if (!wrapper) {
-            printf("WARNING: wrapper is NULL for perf counter %d\n", perf_counter_idx);
-            return 0.0;
-        }
-        double val = wrapper->get_kernel_perf_counter_avg(perf_counter_idx);
-        // Debug first few calls
-        if (perf_counter_idx <= 5) {
-            printf("DEBUG: perf_counter[%d] = %.6f\n", perf_counter_idx, val);
-        }
-        return val;
-    }
-    
-    // Helper function to get average power component from power wrapper
-    double get_power_component_avg(class gpgpu_sim_wrapper* wrapper, int power_comp_idx) {
-        if (!wrapper) {
-            printf("WARNING: wrapper is NULL for power component %d\n", power_comp_idx);
-            return 0.0;
-        }
-        double val = wrapper->get_kernel_power_component_avg(power_comp_idx);
-        // Debug first few calls
-        if (power_comp_idx <= 7) {
-            printf("DEBUG: power_component[%d] = %.6f\n", power_comp_idx, val);
-        }
-        return val;
     }
     
 public:

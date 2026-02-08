@@ -485,6 +485,13 @@ double gpgpu_sim_wrapper::get_kernel_power_component_avg(
          static_cast<double>(kernel_sample_count);
 }
 
+double gpgpu_sim_wrapper::get_kernel_avg_threads_per_warp() const {
+  if (kernel_sample_count <= 0) {
+    return 0.0;
+  }
+  return avg_threads_per_warp_tot / static_cast<double>(kernel_sample_count);
+}
+
 void gpgpu_sim_wrapper::set_int_accesses(double ialu_accesses,
                                          double imul24_accesses,
                                          double imul32_accesses,

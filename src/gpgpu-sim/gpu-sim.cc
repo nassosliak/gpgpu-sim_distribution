@@ -1010,6 +1010,12 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
     printf("Decided Sub-core Count: %u\n", subcore_count);
     set_active_subcore_limit(subcore_count);
     activate_subcore_limit();
+    // Reassign idle warp slots to the active sub-cores on every SM.
+    // Active warps keep their current scheduler so they can complete
+    // on the sub-core they were originally assigned to.
+    for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
+      m_cluster[i]->reassign_warps_to_schedulers();
+    }
     set_subcore_limit_start_cycle(gpu_tot_sim_cycle + gpu_sim_cycle);
     init_warp_issue_logging();
     first_kernel_done = true;

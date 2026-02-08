@@ -466,6 +466,7 @@ class gpgpu_sim_config : public power_config,
   }
 
   bool flush_l1() const { return gpgpu_flush_l1_cache; }
+  bool reconfiguration_enabled() const { return g_reconfiguration_enabled; }
 
  private:
   void init_clock_domains(void);
