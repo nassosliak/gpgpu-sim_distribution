@@ -2102,6 +2102,10 @@ class shader_core_ctx : public core_t {
   bool ldst_unit_response_buffer_full() const;
   unsigned get_not_completed() const { return m_not_completed; }
   unsigned get_n_active_cta() const { return m_n_active_cta; }
+  // Sub-core limiting: effective thread/warp capacity
+  unsigned get_active_thread_limit() const { return m_active_thread_limit; }
+  unsigned get_active_warp_limit() const { return m_active_thread_limit / m_config->warp_size; }
+  void apply_subcore_limit(unsigned num_active_subcores);
   unsigned isactive() const {
     if (m_n_active_cta > 0)
       return 1;
@@ -2521,6 +2525,7 @@ class shader_core_ctx : public core_t {
   // CTA scheduling / hardware thread allocation
   unsigned m_n_active_cta;  // number of Cooperative Thread Arrays (blocks)
                             // currently running on this shader.
+  unsigned m_active_thread_limit;  // effective thread capacity (reduced by sub-core limiting)
   unsigned m_cta_status[MAX_CTA_PER_SHADER];  // CTAs status
   unsigned m_not_completed;  // number of threads to be completed (==0 when all
                              // thread on this core completed)

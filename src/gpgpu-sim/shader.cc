@@ -154,6 +154,7 @@ void shader_core_ctx::create_front_pipeline() {
   m_not_completed = 0;
   m_active_threads.reset();
   m_n_active_cta = 0;
+  m_active_thread_limit = m_config->n_thread_per_shader;  // full capacity until limited
   for (unsigned i = 0; i < MAX_CTA_PER_SHADER; i++) m_cta_status[i] = 0;
   for (unsigned i = 0; i < m_config->n_thread_per_shader; i++) {
     m_thread[i] = NULL;
@@ -271,56 +272,49 @@ void shader_core_ctx::create_schedulers() {
   }
 }
 
-void shader_core_ctx::reassign_warps_to_schedulers() {
+void shader_core_ctx::apply_subcore_limit(unsigned num_active_subcores) {
   unsigned num_schedulers = m_config->gpgpu_num_sched_per_core;
-  unsigned active_limit = m_gpu->get_active_subcore_limit();
+  unsigned total_warps = m_config->max_warps_per_shader;  // e.g. 64
+  unsigned warps_per_sched = total_warps / num_schedulers;  // e.g. 16
 
-  // No-op if keeping all schedulers active — avoids perturbing execution
-  if (active_limit >= num_schedulers) {
-    SHADER_DPRINTF(LIVENESS,
-                   "GPGPU-Sim uArch: SM %d skipping warp reassignment "
-                   "(active_limit %u == num_schedulers %u)\n",
-                   m_sid, active_limit, num_schedulers);
-    return;
-  }
+  // Compute the number of active warp slots.
+  // With 4 schedulers and 64 warps: 1SC→16, 2SC→32, 3SC→48, 4SC→64
+  unsigned active_warps = num_active_subcores * warps_per_sched;
+  m_active_thread_limit = active_warps * m_config->warp_size;
+
+  printf("GPGPU-Sim uArch: SM %d sub-core limit: "
+         "%u active sub-cores, warp slots 0-%u (of %u), %u threads\n",
+         m_sid, num_active_subcores, active_warps - 1, total_warps,
+         m_active_thread_limit);
 
   // Step 1: Clear all schedulers' warp lists
   for (unsigned s = 0; s < num_schedulers; s++) {
     schedulers[s]->clear_supervised_warps();
   }
 
-  // Step 2: For each warp slot, decide which scheduler it should go to.
-  // - Active warps (not done) keep their current scheduler assignment so they
-  //   can complete on the sub-core they were originally assigned to.
-  // - Idle warp slots get redistributed to only the first 'active_limit'
-  //   schedulers using round-robin.
-  unsigned idle_rr_counter = 0;  // round-robin counter for idle warp slots
-  for (unsigned i = 0; i < m_warp.size(); i++) {
-    bool warp_active = !m_warp[i]->done_exit();
-
-    if (warp_active) {
-      // Keep existing assignment — this warp was issued before reconfiguration
-      int current_sched = m_warp_scheduler_assignment[i];
-      schedulers[current_sched]->add_supervised_warp_id(i);
-      // m_warp_scheduler_assignment[i] stays the same
-    } else {
-      // Idle warp slot: assign to one of the active sub-cores only
-      unsigned new_sched = idle_rr_counter % active_limit;
-      schedulers[new_sched]->add_supervised_warp_id(i);
-      m_warp_scheduler_assignment[i] = new_sched;
-      idle_rr_counter++;
-    }
+  // Step 2: Distribute active warp slots (0 .. active_warps-1) round-robin
+  //         across the active schedulers (0 .. num_active_subcores-1).
+  //         Slots beyond active_warps are left unassigned → no scheduler
+  //         will ever see them, so no CTAs can use those thread IDs.
+  for (unsigned i = 0; i < active_warps && i < m_warp.size(); i++) {
+    unsigned sched_id = i % num_active_subcores;
+    schedulers[sched_id]->add_supervised_warp_id(i);
+    m_warp_scheduler_assignment[i] = sched_id;
+  }
+  // Mark remaining warp slots as unassigned
+  for (unsigned i = active_warps; i < m_warp.size(); i++) {
+    m_warp_scheduler_assignment[i] = -1;
   }
 
-  // Step 3: Finalize all schedulers
+  // Step 3: Finalize all schedulers (disabled ones have empty warp lists)
   for (unsigned s = 0; s < num_schedulers; s++) {
     schedulers[s]->done_adding_supervised_warps();
   }
+}
 
-  SHADER_DPRINTF(LIVENESS,
-                 "GPGPU-Sim uArch: SM %d reassigned warps to %u active "
-                 "sub-cores (schedulers)\n",
-                 m_sid, active_limit);
+void shader_core_ctx::reassign_warps_to_schedulers() {
+  unsigned active_limit = m_gpu->get_active_subcore_limit();
+  apply_subcore_limit(active_limit);
 }
 
 void shader_core_ctx::create_exec_pipeline() {
@@ -1326,6 +1320,12 @@ void scheduler_unit::record_warp_issue(unsigned num_issued) {
 }
 void scheduler_unit::cycle() {
   SCHED_DPRINTF("scheduler_unit::cycle()\n");
+
+  // Skip this scheduler if it has no supervised warps (disabled sub-core)
+  if (m_supervised_warps.empty()) {
+    return;
+  }
+
   bool valid_inst =
       false;  // there was one warp with a valid instruction to issue (didn't
               // require flush due to control hazard)

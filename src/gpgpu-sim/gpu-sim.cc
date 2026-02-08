@@ -1840,21 +1840,49 @@ bool shader_core_ctx::can_issue_1block(kernel_info_t &kernel) {
 
     return occupy_shader_resource_1block(kernel, false);
   } else {
-    return (get_n_active_cta() < m_config->max_cta(kernel));
+    if (get_n_active_cta() >= m_config->max_cta(kernel))
+      return false;
+
+    // Sub-core limiting: check that the next CTA's warp slots fit within
+    // the active warp slot range.  In the non-concurrent path, CTA i is
+    // placed at start_thread = i * padded_cta_size, so we must verify that
+    // its last thread ID stays below the active thread limit.
+    if (m_gpu->is_subcore_limit_active()) {
+      unsigned threads_per_cta = kernel.threads_per_cta();
+      unsigned padded = threads_per_cta;
+      if (padded % m_config->warp_size)
+        padded = ((padded / m_config->warp_size) + 1) * m_config->warp_size;
+
+      // Find the first free CTA slot
+      unsigned max_cta_check = kernel_max_cta_per_shader;
+      for (unsigned i = 0; i < max_cta_check; i++) {
+        if (m_cta_status[i] == 0) {
+          unsigned start_thread = i * padded;
+          unsigned end_thread = start_thread + padded;
+          if (end_thread > get_active_thread_limit()) {
+            return false;  // CTA's threads would land in disabled warp slots
+          }
+          break;
+        }
+      }
+    }
+    return true;
   }
 }
 
 int shader_core_ctx::find_available_hwtid(unsigned int cta_size, bool occupy) {
+  // Respect sub-core thread limit: only search within active warp slots
+  unsigned int search_limit = m_active_thread_limit;
   unsigned int step;
-  for (step = 0; step < m_config->n_thread_per_shader; step += cta_size) {
+  for (step = 0; step < search_limit; step += cta_size) {
     unsigned int hw_tid;
     for (hw_tid = step; hw_tid < step + cta_size; hw_tid++) {
-      if (m_occupied_hwtid.test(hw_tid)) break;
+      if (hw_tid >= search_limit || m_occupied_hwtid.test(hw_tid)) break;
     }
     if (hw_tid == step + cta_size)  // consecutive non-active
       break;
   }
-  if (step >= m_config->n_thread_per_shader)  // didn't find
+  if (step >= search_limit)  // didn't find
     return -1;
   else {
     if (occupy) {
@@ -1874,7 +1902,8 @@ bool shader_core_ctx::occupy_shader_resource_1block(kernel_info_t &k,
   if (padded_cta_size % warp_size)
     padded_cta_size = ((padded_cta_size / warp_size) + 1) * (warp_size);
 
-  if (m_occupied_n_threads + padded_cta_size > m_config->n_thread_per_shader)
+  // Use the active thread limit (reduced when sub-cores are disabled)
+  if (m_occupied_n_threads + padded_cta_size > m_active_thread_limit)
     return false;
 
   if (find_available_hwtid(padded_cta_size, false) == -1) return false;
@@ -2004,6 +2033,21 @@ void shader_core_ctx::issue_block2core(kernel_info_t &kernel) {
     assert(m_occupied_cta_to_hwtid.find(free_cta_hw_id) ==
            m_occupied_cta_to_hwtid.end());
     m_occupied_cta_to_hwtid[free_cta_hw_id] = start_thread;
+  }
+
+  // Guard: abort if the CTA's warp slots exceed the active limit
+  if (m_gpu->is_subcore_limit_active()) {
+    unsigned last_warp = (start_thread + padded_cta_size - 1) / m_config->warp_size;
+    unsigned warp_limit = get_active_warp_limit();
+    if (last_warp >= warp_limit) {
+      printf("GPGPU-Sim uArch: FATAL ERROR - SM %u: CTA %u requires warp "
+             "slot %u but only slots 0-%u are active (%u sub-cores). "
+             "start_thread=%u, padded_cta_size=%d, active_thread_limit=%u\n",
+             m_sid, free_cta_hw_id, last_warp, warp_limit - 1,
+             m_gpu->get_active_subcore_limit(), start_thread, padded_cta_size,
+             m_active_thread_limit);
+      abort();
+    }
   }
 
   // reset the microarchitecture state of the selected hardware thread and warp
