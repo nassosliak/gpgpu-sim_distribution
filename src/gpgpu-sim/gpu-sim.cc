@@ -977,12 +977,12 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
   }
   assert(k != m_running_kernels.end());
 
-  //Log after first kernel instance ends, decide sub-core count, and block schedulers
-  static bool first_kernel_done = false;
-  if (!first_kernel_done && m_config.g_reconfiguration_enabled) {
-    //Logs
+  // After every kernel instance ends, re-evaluate the optimal sub-core count.
+  // If the decision differs from the current configuration, reconfigure warp
+  // slots across sub-cores (including increasing them, e.g. 2→4).
+  if (m_config.g_reconfiguration_enabled) {
     printf("\n========================================\n");
-    printf("FIRST KERNEL INSTANCE COMPLETED!\n");
+    printf("KERNEL INSTANCE COMPLETED — RE-EVALUATING SUB-CORE COUNT\n");
     printf("Kernel UID: %u\n", uid);
     printf("Kernel Name: %s\n", kernel->name().c_str());
     printf("Stream ID: %llu\n", streamID);
@@ -990,35 +990,45 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
     unsigned long long total_cycles = kernel->end_cycle - kernel->start_cycle;
     printf("Total Cycles: %llu\n", total_cycles);
     printf("========================================\n\n");
-    // Calculate IPC for the first kernel
+
+    // Collect instruction count across all SMs
     unsigned long long total_instructions = 0;
     for (unsigned i = 0; i < m_shader_config->num_shader(); i++) {
       total_instructions += m_shader_stats->m_num_sim_insn[i];
     }
-    
-    float kernel_ipc = (total_cycles > 0) ? 
-                       (float)total_instructions / (float)total_cycles : 0.0f;
-    printf("First Kernel IPC: %.4f\n", kernel_ipc);
 
-    //Decide Sub-core count
+    float kernel_ipc = (total_cycles > 0) ?
+                       (float)total_instructions / (float)total_cycles : 0.0f;
+    printf("Kernel IPC: %.4f\n", kernel_ipc);
+
+    // Decide optimal sub-core count via classifier
     class gpgpu_sim_wrapper* power_wrapper = nullptr;
   #ifdef GPGPUSIM_POWER_MODEL
     power_wrapper = m_gpgpusim_wrapper;
   #endif
     unsigned subcore_count = decide_subcore_count(
       total_instructions, total_cycles, power_wrapper);
-    printf("Decided Sub-core Count: %u\n", subcore_count);
-    set_active_subcore_limit(subcore_count);
-    activate_subcore_limit();
-    // Reassign idle warp slots to the active sub-cores on every SM.
-    // Active warps keep their current scheduler so they can complete
-    // on the sub-core they were originally assigned to.
-    for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
-      m_cluster[i]->reassign_warps_to_schedulers();
+    printf("Decided Sub-core Count: %u (current: %u)\n",
+           subcore_count, m_active_subcore_limit);
+
+    // Only reconfigure if the decision changed
+    if (subcore_count != m_active_subcore_limit) {
+      printf("RECONFIGURING: %u → %u active sub-cores\n",
+             m_active_subcore_limit, subcore_count);
+      set_active_subcore_limit(subcore_count);
+      activate_subcore_limit();
+      // Redistribute all warp slots round-robin across the (new) active
+      // sub-cores on every SM.  Both increases (e.g. 2→4, gaining slots)
+      // and decreases (e.g. 4→2, shedding slots) are handled.
+      for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
+        m_cluster[i]->reassign_warps_to_schedulers();
+      }
+      set_subcore_limit_start_cycle(gpu_tot_sim_cycle + gpu_sim_cycle);
+      init_warp_issue_logging();
+    } else {
+      printf("Sub-core count unchanged (%u), no reconfiguration needed.\n",
+             subcore_count);
     }
-    set_subcore_limit_start_cycle(gpu_tot_sim_cycle + gpu_sim_cycle);
-    init_warp_issue_logging();
-    first_kernel_done = true;
   }
 }
 
