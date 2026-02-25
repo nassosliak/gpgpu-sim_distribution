@@ -763,6 +763,11 @@ class gpgpu_sim : public gpgpu_t {
 
   std::map<std::string, FuncCache> m_special_cache_config;
 
+  // Per-kernel-name predicted subcore count for the NEXT instance of that kernel.
+  // The prediction is made after a kernel completes and applied when the next
+  // instance of the same kernel (by name) is launched.
+  std::map<std::string, unsigned> m_kernel_subcore_predictions;
+
   std::vector<std::string>
       m_executed_kernel_names;  //< names of kernel for stat printout
   std::vector<unsigned>

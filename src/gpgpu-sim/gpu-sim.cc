@@ -812,6 +812,57 @@ void increment_x_then_y_then_z(dim3 &i, const dim3 &bound) {
 void gpgpu_sim::launch(kernel_info_t *kinfo) {
   unsigned kernelID = kinfo->get_uid();
   unsigned long long streamID = kinfo->get_streamID();
+  std::string kernel_name = kinfo->name();
+
+  // Check if we have a stored prediction for this kernel name from a previous
+  // instance. If so, apply the predicted sub-core configuration.
+  if (m_config.g_reconfiguration_enabled) {
+    auto it = m_kernel_subcore_predictions.find(kernel_name);
+    //print kernel lookup table
+      printf("\n========================================\n");
+      printf("KERNEL SUB-CORE PREDICTION TABLE\n");
+      printf("========================================\n");
+      for (const auto& entry : m_kernel_subcore_predictions) {
+          printf("Kernel Name: %s, Predicted Sub-cores: %u\n",
+                  entry.first.c_str(), entry.second);
+      }
+      printf("========================================\n\n");
+    if (it != m_kernel_subcore_predictions.end()) {
+      unsigned predicted_subcores = it->second;
+      printf("\n========================================\n");
+      printf("KERNEL LAUNCH — APPLYING STORED PREDICTION\n");
+      printf("Kernel Name: %s\n", kernel_name.c_str());
+      printf("Kernel UID: %u\n", kernelID);
+      printf("Stored Prediction: %u sub-cores (current: %u)\n",
+             predicted_subcores, m_active_subcore_limit);
+      
+      if (predicted_subcores != m_active_subcore_limit) {
+        printf("RECONFIGURING: %u → %u active sub-cores\n",
+               m_active_subcore_limit, predicted_subcores);
+        set_active_subcore_limit(predicted_subcores);
+        activate_subcore_limit();
+        // Redistribute all warp slots round-robin across the (new) active
+        // sub-cores on every SM.
+        for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
+          m_cluster[i]->reassign_warps_to_schedulers();
+        }
+        set_subcore_limit_start_cycle(gpu_tot_sim_cycle + gpu_sim_cycle);
+        init_warp_issue_logging();
+      } else {
+        printf("Sub-core count unchanged (%u), no reconfiguration needed.\n",
+               predicted_subcores);
+      }
+      printf("========================================\n\n");
+    } else {
+      printf("\n========================================\n");
+      printf("KERNEL LAUNCH — NO PRIOR PREDICTION\n");
+      printf("Kernel Name: %s (first instance)\n", kernel_name.c_str());
+      printf("Kernel UID: %u\n", kernelID);
+      printf("Using current sub-core count: %u\n", m_active_subcore_limit);
+      printf("(Prediction will be made when this instance completes)\n");
+      printf("========================================\n\n");
+    }
+  }
 
   kernel_time_t kernel_time = {gpu_tot_sim_cycle + gpu_sim_cycle, 0};
   if (gpu_kernel_time.find(streamID) == gpu_kernel_time.end()) {
@@ -977,14 +1028,16 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
   }
   assert(k != m_running_kernels.end());
 
-  // After every kernel instance ends, re-evaluate the optimal sub-core count.
-  // If the decision differs from the current configuration, reconfigure warp
-  // slots across sub-cores (including increasing them, e.g. 2→4).
+  // After every kernel instance ends, re-evaluate the optimal sub-core count
+  // and STORE it for the NEXT instance of this same kernel (by name).
+  // The stored prediction will be applied when the next instance of
+  // this kernel is launched.
   if (m_config.g_reconfiguration_enabled) {
+    std::string kernel_name = kernel->name();
     printf("\n========================================\n");
-    printf("KERNEL INSTANCE COMPLETED — RE-EVALUATING SUB-CORE COUNT\n");
+    printf("KERNEL INSTANCE COMPLETED — PREDICTING SUB-CORE COUNT FOR NEXT INSTANCE\n");
     printf("Kernel UID: %u\n", uid);
-    printf("Kernel Name: %s\n", kernel->name().c_str());
+    printf("Kernel Name: %s\n", kernel_name.c_str());
     printf("Stream ID: %llu\n", streamID);
     printf("End Cycle: %llu\n", kernel->end_cycle);
     unsigned long long total_cycles = kernel->end_cycle - kernel->start_cycle;
@@ -1008,27 +1061,24 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
   #endif
     unsigned subcore_count = decide_subcore_count(
       total_instructions, total_cycles, power_wrapper);
-    printf("Decided Sub-core Count: %u (current: %u)\n",
-           subcore_count, m_active_subcore_limit);
 
-    // Only reconfigure if the decision changed
-    if (subcore_count != m_active_subcore_limit) {
-      printf("RECONFIGURING: %u → %u active sub-cores\n",
-             m_active_subcore_limit, subcore_count);
-      set_active_subcore_limit(subcore_count);
-      activate_subcore_limit();
-      // Redistribute all warp slots round-robin across the (new) active
-      // sub-cores on every SM.  Both increases (e.g. 2→4, gaining slots)
-      // and decreases (e.g. 4→2, shedding slots) are handled.
-      for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
-        m_cluster[i]->reassign_warps_to_schedulers();
-      }
-      set_subcore_limit_start_cycle(gpu_tot_sim_cycle + gpu_sim_cycle);
-      init_warp_issue_logging();
-    } else {
-      printf("Sub-core count unchanged (%u), no reconfiguration needed.\n",
-             subcore_count);
+    // Store the prediction for the NEXT instance of this kernel (by name)
+    unsigned prev_prediction = 0;
+    auto it = m_kernel_subcore_predictions.find(kernel_name);
+    if (it != m_kernel_subcore_predictions.end()) {
+      prev_prediction = it->second;
     }
+    m_kernel_subcore_predictions[kernel_name] = subcore_count;
+
+    printf("Predicted Sub-core Count for NEXT '%s' instance: %u",
+           kernel_name.c_str(), subcore_count);
+    if (prev_prediction > 0 && prev_prediction != subcore_count) {
+      printf(" (changed from previous prediction: %u)", prev_prediction);
+    }
+    printf("\n");
+    printf("(This prediction will be applied when the next instance of '%s' is launched)\n",
+           kernel_name.c_str());
+    printf("========================================\n\n");
   }
 }
 
