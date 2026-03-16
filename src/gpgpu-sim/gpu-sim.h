@@ -467,6 +467,9 @@ class gpgpu_sim_config : public power_config,
 
   bool flush_l1() const { return gpgpu_flush_l1_cache; }
   bool reconfiguration_enabled() const { return g_reconfiguration_enabled; }
+  bool cold_start_classifier_enabled() const {
+    return g_cold_start_classifier_enabled;
+  }
 
  private:
   void init_clock_domains(void);
@@ -522,6 +525,7 @@ class gpgpu_sim_config : public power_config,
 
   // Sub-core reconfiguration
   bool g_reconfiguration_enabled;
+  bool g_cold_start_classifier_enabled;
 
   friend class gpgpu_sim;
   friend class sst_gpgpu_sim;

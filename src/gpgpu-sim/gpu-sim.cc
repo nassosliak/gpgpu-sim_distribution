@@ -781,6 +781,12 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
                        "Enable ML-based sub-core reconfiguration and warp issue logging "
                        "(1=On (default), 0=Off)",
                        "1");
+  option_parser_register(
+      opp, "-cold_start_classifier_enabled", OPT_BOOL,
+      &g_cold_start_classifier_enabled,
+      "Enable ML cold-start classifier for kernels without lookup-table predictions "
+      "(1=On (default), 0=Off, use default 4 sub-cores)",
+      "1");
 
   // Jin: kernel launch latency
   option_parser_register(opp, "-gpgpu_kernel_launch_latency", OPT_INT32,
@@ -855,34 +861,52 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
       }
       printf("========================================\n\n");
     } else {
-      // Cold-start: no exact or family match - use ML classifier on pre-launch features
+      // Cold-start: no exact or family match. Optionally run ML classifier,
+      // or fall back to default 4 sub-cores when disabled.
       dim3 grid_dim = kinfo->get_grid_dim();
       dim3 block_dim = kinfo->get_cta_dim();
-      const struct gpgpu_ptx_sim_info *kinfo_ptx = kinfo->entry()->get_kernel_info();
+      const struct gpgpu_ptx_sim_info *kinfo_ptx =
+          kinfo->entry()->get_kernel_info();
       int nregs = kinfo_ptx ? kinfo_ptx->regs : 0;
       int shmem = kinfo_ptx ? kinfo_ptx->smem : 0;
 
-      unsigned cold_start_sc = ColdStartClassifier::predict_from_launch_params(
-          grid_dim.x, grid_dim.y, grid_dim.z,
-          block_dim.x, block_dim.y, block_dim.z,
-          nregs, shmem);
-
-      // Clamp to valid range [1, 4]
-      if (cold_start_sc < 1 || cold_start_sc > 4) cold_start_sc = 1;
+      unsigned cold_start_sc = 4;  // Default first-instance fallback.
+      if (cold_start_sc > m_shader_config->gpgpu_num_sched_per_core)
+        cold_start_sc = m_shader_config->gpgpu_num_sched_per_core;
+      if (cold_start_sc < 1) cold_start_sc = 1;
 
       printf("\n========================================\n");
-      printf("KERNEL LAUNCH - COLD START (ML CLASSIFIER)\n");
+      printf("KERNEL LAUNCH - COLD START (FIRST INSTANCE)\n");
       printf("Kernel Name: %s (first instance)\n", kernel_name.c_str());
       printf("Kernel UID: %u\n", kernelID);
       printf("Grid: (%u, %u, %u)  Block: (%u, %u, %u)\n",
              grid_dim.x, grid_dim.y, grid_dim.z,
              block_dim.x, block_dim.y, block_dim.z);
       printf("Registers: %d  Shared Memory: %d bytes\n", nregs, shmem);
-      printf("Cold-start ML prediction: %u sub-cores (current: %u)\n",
-             cold_start_sc, m_active_subcore_limit);
+
+      if (m_config.g_cold_start_classifier_enabled) {
+        cold_start_sc = ColdStartClassifier::predict_from_launch_params(
+            grid_dim.x, grid_dim.y, grid_dim.z,
+            block_dim.x, block_dim.y, block_dim.z, nregs, shmem);
+
+        // Clamp to valid range [1, 4].
+        if (cold_start_sc < 1 || cold_start_sc > 4) cold_start_sc = 1;
+        if (cold_start_sc > m_shader_config->gpgpu_num_sched_per_core)
+          cold_start_sc = m_shader_config->gpgpu_num_sched_per_core;
+        if (cold_start_sc < 1) cold_start_sc = 1;
+
+        printf("Cold-start ML prediction: %u sub-cores (current: %u)\n",
+               cold_start_sc, m_active_subcore_limit);
+      } else {
+        printf(
+            "Cold-start default: %u sub-cores (current: %u)\n",
+            cold_start_sc, m_active_subcore_limit);
+      }
+
+      printf("Using current sub-core count: %u\n", cold_start_sc);
 
       if (cold_start_sc != m_active_subcore_limit) {
-        printf("RECONFIGURING: %u -> %u active sub-cores (cold start ML)\n",
+        printf("RECONFIGURING: %u -> %u active sub-cores (cold start)\n",
                m_active_subcore_limit, cold_start_sc);
         set_active_subcore_limit(cold_start_sc);
         activate_subcore_limit();
