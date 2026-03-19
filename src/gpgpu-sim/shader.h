@@ -2642,6 +2642,7 @@ class simt_core_cluster {
   void cache_flush();
   void cache_invalidate();
   void reassign_warps_to_schedulers();
+  void update_power_scaling_coeffs(PowerscalingCoefficients *coeffs);
   bool icnt_injection_buffer_full(unsigned size, bool write);
   void icnt_inject_request_packet(class mem_fetch *mf);
   void update_icnt_stats(class mem_fetch *mf);

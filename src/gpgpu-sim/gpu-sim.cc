@@ -787,6 +787,12 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
       "Enable ML cold-start classifier for kernels without lookup-table predictions "
       "(1=On (default), 0=Off, use default 4 sub-cores)",
       "1");
+  option_parser_register(
+      opp, "-gpgpu_subcore_scaling_factor", OPT_DOUBLE,
+      &g_subcore_scaling_factor,
+      "Fixed scaling factor for sub-core coefficient when reconfiguration is disabled. "
+      "Scales coefficients by this factor. Default: 1.0 (100%), 0.75 = 75%, 0.5 = 50%, 0.25 = 25%",
+      "1.0");
 
   // Jin: kernel launch latency
   option_parser_register(opp, "-gpgpu_kernel_launch_latency", OPT_INT32,
@@ -820,31 +826,33 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
   unsigned kernelID = kinfo->get_uid();
   unsigned long long streamID = kinfo->get_streamID();
   std::string kernel_name = kinfo->name();
+  unsigned launch_subcore_count = m_active_subcore_limit;
 
   // Check if we have a stored prediction for this kernel name from a previous
   // instance. If so, apply the predicted sub-core configuration.
   if (m_config.g_reconfiguration_enabled) {
     auto it = m_kernel_subcore_predictions.find(kernel_name);
-    //print kernel lookup table
-      printf("\n========================================\n");
-      printf("KERNEL SUB-CORE PREDICTION TABLE\n");
-      printf("========================================\n");
-      for (const auto& entry : m_kernel_subcore_predictions) {
-          printf("Kernel Name: %s, Predicted Sub-cores: %u\n",
-                  entry.first.c_str(), entry.second);
-      }
-      printf("========================================\n\n");
+    printf("\n========================================\n");
+    printf("KERNEL SUB-CORE PREDICTION TABLE\n");
+    printf("========================================\n");
+    for (const auto &entry : m_kernel_subcore_predictions) {
+      printf("Kernel Name: %s, Predicted Sub-cores: %u\n",
+             entry.first.c_str(), entry.second);
+    }
+    printf("========================================\n\n");
+
     if (it != m_kernel_subcore_predictions.end()) {
       unsigned predicted_subcores = it->second;
+      launch_subcore_count = predicted_subcores;
       printf("\n========================================\n");
-      printf("KERNEL LAUNCH — APPLYING STORED PREDICTION\n");
+      printf("KERNEL LAUNCH - APPLYING STORED PREDICTION\n");
       printf("Kernel Name: %s\n", kernel_name.c_str());
       printf("Kernel UID: %u\n", kernelID);
       printf("Stored Prediction: %u sub-cores (current: %u)\n",
              predicted_subcores, m_active_subcore_limit);
-      
+
       if (predicted_subcores != m_active_subcore_limit) {
-        printf("RECONFIGURING: %u → %u active sub-cores\n",
+        printf("RECONFIGURING: %u -> %u active sub-cores\n",
                m_active_subcore_limit, predicted_subcores);
         set_active_subcore_limit(predicted_subcores);
         activate_subcore_limit();
@@ -879,15 +887,14 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
       printf("KERNEL LAUNCH - COLD START (FIRST INSTANCE)\n");
       printf("Kernel Name: %s (first instance)\n", kernel_name.c_str());
       printf("Kernel UID: %u\n", kernelID);
-      printf("Grid: (%u, %u, %u)  Block: (%u, %u, %u)\n",
-             grid_dim.x, grid_dim.y, grid_dim.z,
-             block_dim.x, block_dim.y, block_dim.z);
+      printf("Grid: (%u, %u, %u)  Block: (%u, %u, %u)\n", grid_dim.x,
+             grid_dim.y, grid_dim.z, block_dim.x, block_dim.y, block_dim.z);
       printf("Registers: %d  Shared Memory: %d bytes\n", nregs, shmem);
 
       if (m_config.g_cold_start_classifier_enabled) {
         cold_start_sc = ColdStartClassifier::predict_from_launch_params(
-            grid_dim.x, grid_dim.y, grid_dim.z,
-            block_dim.x, block_dim.y, block_dim.z, nregs, shmem);
+            grid_dim.x, grid_dim.y, grid_dim.z, block_dim.x, block_dim.y,
+            block_dim.z, nregs, shmem);
 
         // Clamp to valid range [1, 4].
         if (cold_start_sc < 1 || cold_start_sc > 4) cold_start_sc = 1;
@@ -898,11 +905,11 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
         printf("Cold-start ML prediction: %u sub-cores (current: %u)\n",
                cold_start_sc, m_active_subcore_limit);
       } else {
-        printf(
-            "Cold-start default: %u sub-cores (current: %u)\n",
-            cold_start_sc, m_active_subcore_limit);
+        printf("Cold-start default: %u sub-cores (current: %u)\n", cold_start_sc,
+               m_active_subcore_limit);
       }
 
+      launch_subcore_count = cold_start_sc;
       printf("Using current sub-core count: %u\n", cold_start_sc);
 
       if (cold_start_sc != m_active_subcore_limit) {
@@ -924,6 +931,11 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
       printf("========================================\n\n");
     }
   }
+
+#ifdef GPGPUSIM_POWER_MODEL
+  // Apply the coefficient row selected for the sub-core count of this launch.
+  apply_subcore_coefficient_profile(launch_subcore_count, kernel_name);
+#endif
 
   kernel_time_t kernel_time = {gpu_tot_sim_cycle + gpu_sim_cycle, 0};
   if (gpu_kernel_time.find(streamID) == gpu_kernel_time.end()) {
@@ -1218,6 +1230,8 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   m_active_subcore_limit = 4;  // Default to all sub-cores active
   m_subcore_limit_active = false;
   m_subcore_limit_start_cycle = 0;
+    m_subcore_coefficient_table_initialized = false;
+    memset(&m_runtime_scaling_coeffs, 0, sizeof(m_runtime_scaling_coeffs));
   m_warp_issue_logging_enabled = false;
   m_last_warp_issue_log_cycle = 0;
   // TODO: somehow move this logic to the sst_gpgpu_sim constructor?
@@ -1529,11 +1543,327 @@ void gpgpu_sim::update_stats() {
   gpu_occupancy = occupancy_stats();
 }
 
-PowerscalingCoefficients *gpgpu_sim::get_scaling_coeffs() {
-  return m_gpgpusim_wrapper->get_scaling_coeffs();
+void gpgpu_sim::init_subcore_coefficient_table() {
+#ifdef GPGPUSIM_POWER_MODEL
+  if (!m_config.g_power_simulation_enabled || !m_gpgpusim_wrapper) {
+    return;
+  }
+
+  const unsigned max_subcores = m_shader_config->gpgpu_num_sched_per_core;
+  if (max_subcores == 0) {
+    return;
+  }
+
+  // Capture the initial full-subcore coefficient profile from XML defaults.
+  subcore_coeff_profile_t base_profile;
+  PowerscalingCoefficients *base_coeffs = m_gpgpusim_wrapper->get_scaling_coeffs();
+  if (!base_coeffs) {
+    return;
+  }
+  base_profile.shader_coeffs = *base_coeffs;
+  delete base_coeffs;
+
+  base_profile.fp_int_coeff =
+      m_gpgpusim_wrapper->get_perf_counter_scaling_coeff(FP_INT);
+  base_profile.reg_rd_coeff =
+      m_gpgpusim_wrapper->get_perf_counter_scaling_coeff(REG_RD);
+  base_profile.reg_wr_coeff =
+      m_gpgpusim_wrapper->get_perf_counter_scaling_coeff(REG_WR);
+  base_profile.non_reg_ops_coeff =
+      m_gpgpusim_wrapper->get_perf_counter_scaling_coeff(NON_REG_OPs);
+  base_profile.pipe_a_coeff =
+      m_gpgpusim_wrapper->get_perf_counter_scaling_coeff(PIPE_A);
+
+  m_subcore_coefficient_table.clear();
+
+  for (unsigned sc = 1; sc <= max_subcores; ++sc) {
+    subcore_coeff_profile_t profile = base_profile;
+
+    // Scale by (active_subcore_count / max_subcore_count).
+    const double multiplier =
+        static_cast<double>(sc) / static_cast<double>(max_subcores);
+    profile.shader_coeffs.int_coeff = base_profile.shader_coeffs.int_coeff * multiplier;
+    profile.shader_coeffs.int_mul_coeff =
+        base_profile.shader_coeffs.int_mul_coeff * multiplier;
+    profile.shader_coeffs.int_mul24_coeff =
+        base_profile.shader_coeffs.int_mul24_coeff * multiplier;
+    profile.shader_coeffs.int_mul32_coeff =
+        base_profile.shader_coeffs.int_mul32_coeff * multiplier;
+    profile.shader_coeffs.int_div_coeff =
+        base_profile.shader_coeffs.int_div_coeff * multiplier;
+    profile.shader_coeffs.fp_coeff = base_profile.shader_coeffs.fp_coeff * multiplier;
+    profile.shader_coeffs.dp_coeff = base_profile.shader_coeffs.dp_coeff * multiplier;
+    profile.shader_coeffs.fp_mul_coeff =
+        base_profile.shader_coeffs.fp_mul_coeff * multiplier;
+    profile.shader_coeffs.fp_div_coeff =
+        base_profile.shader_coeffs.fp_div_coeff * multiplier;
+    profile.shader_coeffs.dp_mul_coeff =
+        base_profile.shader_coeffs.dp_mul_coeff * multiplier;
+    profile.shader_coeffs.dp_div_coeff =
+        base_profile.shader_coeffs.dp_div_coeff * multiplier;
+    profile.shader_coeffs.sqrt_coeff =
+        base_profile.shader_coeffs.sqrt_coeff * multiplier;
+    profile.shader_coeffs.log_coeff = base_profile.shader_coeffs.log_coeff * multiplier;
+    profile.shader_coeffs.sin_coeff = base_profile.shader_coeffs.sin_coeff * multiplier;
+    profile.shader_coeffs.exp_coeff = base_profile.shader_coeffs.exp_coeff * multiplier;
+    profile.shader_coeffs.tensor_coeff =
+        base_profile.shader_coeffs.tensor_coeff * multiplier;
+
+    profile.fp_int_coeff = base_profile.fp_int_coeff * multiplier;
+    profile.reg_rd_coeff = base_profile.reg_rd_coeff * multiplier;
+    profile.reg_wr_coeff = base_profile.reg_wr_coeff * multiplier;
+    profile.non_reg_ops_coeff = base_profile.non_reg_ops_coeff * multiplier;
+    profile.pipe_a_coeff = base_profile.pipe_a_coeff * multiplier;
+
+    m_subcore_coefficient_table[sc] = profile;
+  }
+
+  // Start from full-subcore profile by default.
+  m_runtime_scaling_coeffs = m_subcore_coefficient_table[max_subcores].shader_coeffs;
+  m_subcore_coefficient_table_initialized = true;
+
+  printf("Initialized sub-core coefficient table (1..%u active sub-cores).\n",
+         max_subcores);
+#else
+  return;
+#endif
 }
 
+void gpgpu_sim::print_subcore_coefficient_profile(
+    unsigned subcore_count, const std::string &kernel_name) const {
+#ifdef GPGPUSIM_POWER_MODEL
+  std::map<unsigned, subcore_coeff_profile_t>::const_iterator it =
+      m_subcore_coefficient_table.find(subcore_count);
+  if (it == m_subcore_coefficient_table.end()) {
+    return;
+  }
+
+  const subcore_coeff_profile_t &profile = it->second;
+  printf("\n========================================\n");
+  printf("SUB-CORE COEFFICIENT TABLE ROW\n");
+  printf("========================================\n");
+  printf("Kernel Name: %s\n", kernel_name.c_str());
+  printf("Active Sub-cores: %u/%u\n", subcore_count,
+         m_shader_config->gpgpu_num_sched_per_core);
+  printf("SUBCORE_COMPONENT coefficients:\n");
+  printf("  RFP(REG_RD): %.9f\n", profile.reg_rd_coeff);
+  printf("  INTP(INT_ACC): %.9f\n", profile.shader_coeffs.int_coeff);
+  printf("  FPUP(FP_ACC): %.9f\n", profile.shader_coeffs.fp_coeff);
+  printf("  DPUP(DP_ACC): %.9f\n", profile.shader_coeffs.dp_coeff);
+  printf("  INT_MUL24P(INT_MUL24_ACC): %.9f\n",
+         profile.shader_coeffs.int_mul24_coeff);
+  printf("  INT_MUL32P(INT_MUL32_ACC): %.9f\n",
+         profile.shader_coeffs.int_mul32_coeff);
+  printf("  INT_MULP(INT_MUL_ACC): %.9f\n", profile.shader_coeffs.int_mul_coeff);
+  printf("  INT_DIVP(INT_DIV_ACC): %.9f\n", profile.shader_coeffs.int_div_coeff);
+  printf("  FP_MULP(FP_MUL_ACC): %.9f\n", profile.shader_coeffs.fp_mul_coeff);
+  printf("  FP_DIVP(FP_DIV_ACC): %.9f\n", profile.shader_coeffs.fp_div_coeff);
+  printf("  FP_SQRTP(FP_SQRT_ACC): %.9f\n", profile.shader_coeffs.sqrt_coeff);
+  printf("  FP_LGP(FP_LG_ACC): %.9f\n", profile.shader_coeffs.log_coeff);
+  printf("  FP_SINP(FP_SIN_ACC): %.9f\n", profile.shader_coeffs.sin_coeff);
+  printf("  FP_EXP(FP_EXP_ACC): %.9f\n", profile.shader_coeffs.exp_coeff);
+  printf("  DP_MULP(DP_MUL_ACC): %.9f\n", profile.shader_coeffs.dp_mul_coeff);
+  printf("  DP_DIVP(DP_DIV_ACC): %.9f\n", profile.shader_coeffs.dp_div_coeff);
+  printf("  SCHEDP(FP_INT): %.9f\n", profile.fp_int_coeff);
+  printf("  PIPEP(PIPE_A): %.9f\n", profile.pipe_a_coeff);
+  printf("  TENSORP(TENSOR_ACC): %.9f\n", profile.shader_coeffs.tensor_coeff);
+  printf("Unchanged coefficients keep their initial XML values.\n");
+  printf("========================================\n\n");
+#else
+  (void)subcore_count;
+  (void)kernel_name;
+#endif
+}
+
+void gpgpu_sim::apply_subcore_coefficient_profile(
+    unsigned subcore_count, const std::string &kernel_name) {
+#ifdef GPGPUSIM_POWER_MODEL
+  if (!m_config.g_power_simulation_enabled || !m_gpgpusim_wrapper) {
+    return;
+  }
+
+  if (!m_subcore_coefficient_table_initialized) {
+    init_subcore_coefficient_table();
+  }
+
+  if (!m_subcore_coefficient_table_initialized ||
+      m_subcore_coefficient_table.empty()) {
+    return;
+  }
+
+  const unsigned max_subcores = m_shader_config->gpgpu_num_sched_per_core;
+  if (max_subcores == 0) {
+    return;
+  }
+
+  bool manual_factor_mode = !m_config.g_reconfiguration_enabled;
+  double manual_ratio = 1.0;
+  subcore_coeff_profile_t profile;
+
+  if (manual_factor_mode) {
+    // Manual mode uses the configured factor directly (e.g. 0.25 => divide by
+    // 4), independent of gpgpu_num_sched_per_core.
+    // It also accepts numerator style values (1,2,3,4 => value/4).
+    manual_ratio = m_config.g_subcore_scaling_factor;
+    if (manual_ratio > 1.0) {
+      manual_ratio = manual_ratio / 4.0;
+    }
+    if (manual_ratio < 0.0) manual_ratio = 0.0;
+    if (manual_ratio > 1.0) manual_ratio = 1.0;
+
+    std::map<unsigned, subcore_coeff_profile_t>::const_iterator full_it =
+        m_subcore_coefficient_table.find(max_subcores);
+    if (full_it == m_subcore_coefficient_table.end()) {
+      return;
+    }
+
+    profile = full_it->second;
+
+    // Apply the manual ratio to sub-core-sensitive components.
+    profile.shader_coeffs.int_coeff *= manual_ratio;
+    profile.shader_coeffs.int_mul_coeff *= manual_ratio;
+    profile.shader_coeffs.int_mul24_coeff *= manual_ratio;
+    profile.shader_coeffs.int_mul32_coeff *= manual_ratio;
+    profile.shader_coeffs.int_div_coeff *= manual_ratio;
+    profile.shader_coeffs.fp_coeff *= manual_ratio;
+    profile.shader_coeffs.dp_coeff *= manual_ratio;
+    profile.shader_coeffs.fp_mul_coeff *= manual_ratio;
+    profile.shader_coeffs.fp_div_coeff *= manual_ratio;
+    profile.shader_coeffs.dp_mul_coeff *= manual_ratio;
+    profile.shader_coeffs.dp_div_coeff *= manual_ratio;
+    profile.shader_coeffs.sqrt_coeff *= manual_ratio;
+    profile.shader_coeffs.log_coeff *= manual_ratio;
+    profile.shader_coeffs.sin_coeff *= manual_ratio;
+    profile.shader_coeffs.exp_coeff *= manual_ratio;
+    profile.shader_coeffs.tensor_coeff *= manual_ratio;
+
+    profile.fp_int_coeff *= manual_ratio;
+    profile.reg_rd_coeff *= manual_ratio;
+    profile.reg_wr_coeff *= manual_ratio;
+    profile.non_reg_ops_coeff *= manual_ratio;
+    profile.pipe_a_coeff *= manual_ratio;
+
+    // Manual mode print label uses a virtual 4-subcore denominator.
+    subcore_count = static_cast<unsigned>(manual_ratio * 4.0 + 0.5);
+    if (subcore_count > 4) subcore_count = 4;
+  } else {
+    if (subcore_count < 1) subcore_count = 1;
+    if (subcore_count > max_subcores) subcore_count = max_subcores;
+
+    std::map<unsigned, subcore_coeff_profile_t>::const_iterator it =
+        m_subcore_coefficient_table.find(subcore_count);
+    if (it == m_subcore_coefficient_table.end()) {
+      return;
+    }
+    profile = it->second;
+  }
+
+  m_runtime_scaling_coeffs = profile.shader_coeffs;
+
+  // Apply coefficients that feed SUBCORE_COMPONENTS via wrapper set_*_power.
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(FP_INT, profile.fp_int_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(REG_RD, profile.reg_rd_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(REG_WR, profile.reg_wr_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(NON_REG_OPs,
+                                                     profile.non_reg_ops_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(PIPE_A, profile.pipe_a_coeff);
+
+  // Keep wrapper-side execution-unit coefficients aligned with runtime profile.
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(INT_ACC,
+                                                     profile.shader_coeffs.int_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(INT_MUL_ACC,
+                                                     profile.shader_coeffs.int_mul_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(INT_MUL24_ACC,
+                                                     profile.shader_coeffs.int_mul24_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(INT_MUL32_ACC,
+                                                     profile.shader_coeffs.int_mul32_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(INT_DIV_ACC,
+                                                     profile.shader_coeffs.int_div_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(FP_ACC,
+                                                     profile.shader_coeffs.fp_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(FP_MUL_ACC,
+                                                     profile.shader_coeffs.fp_mul_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(FP_DIV_ACC,
+                                                     profile.shader_coeffs.fp_div_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(DP_ACC,
+                                                     profile.shader_coeffs.dp_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(DP_MUL_ACC,
+                                                     profile.shader_coeffs.dp_mul_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(DP_DIV_ACC,
+                                                     profile.shader_coeffs.dp_div_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(FP_SQRT_ACC,
+                                                     profile.shader_coeffs.sqrt_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(FP_LG_ACC,
+                                                     profile.shader_coeffs.log_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(FP_SIN_ACC,
+                                                     profile.shader_coeffs.sin_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(FP_EXP_ACC,
+                                                     profile.shader_coeffs.exp_coeff);
+  m_gpgpusim_wrapper->set_perf_counter_scaling_coeff(TENSOR_ACC,
+                                                     profile.shader_coeffs.tensor_coeff);
+
+  // Push updated pointer to all shader cores (they cache scaling_coeffs once
+  // in constructor).
+  for (unsigned cluster_id = 0; cluster_id < m_shader_config->n_simt_clusters;
+       ++cluster_id) {
+    m_cluster[cluster_id]->update_power_scaling_coeffs(&m_runtime_scaling_coeffs);
+  }
+
+  if (manual_factor_mode) {
+    printf("\n========================================\n");
+    printf("SUB-CORE COEFFICIENT TABLE ROW (MANUAL)\n");
+    printf("========================================\n");
+    printf("Kernel Name: %s\n", kernel_name.c_str());
+    printf("Active Sub-cores: %u/4 (manual factor=%.6f)\n", subcore_count,
+           manual_ratio);
+    printf("SUBCORE_COMPONENT coefficients:\n");
+    printf("  RFP(REG_RD): %.9f\n", profile.reg_rd_coeff);
+    printf("  INTP(INT_ACC): %.9f\n", profile.shader_coeffs.int_coeff);
+    printf("  FPUP(FP_ACC): %.9f\n", profile.shader_coeffs.fp_coeff);
+    printf("  DPUP(DP_ACC): %.9f\n", profile.shader_coeffs.dp_coeff);
+    printf("  INT_MUL24P(INT_MUL24_ACC): %.9f\n",
+           profile.shader_coeffs.int_mul24_coeff);
+    printf("  INT_MUL32P(INT_MUL32_ACC): %.9f\n",
+           profile.shader_coeffs.int_mul32_coeff);
+    printf("  INT_MULP(INT_MUL_ACC): %.9f\n", profile.shader_coeffs.int_mul_coeff);
+    printf("  INT_DIVP(INT_DIV_ACC): %.9f\n", profile.shader_coeffs.int_div_coeff);
+    printf("  FP_MULP(FP_MUL_ACC): %.9f\n", profile.shader_coeffs.fp_mul_coeff);
+    printf("  FP_DIVP(FP_DIV_ACC): %.9f\n", profile.shader_coeffs.fp_div_coeff);
+    printf("  FP_SQRTP(FP_SQRT_ACC): %.9f\n", profile.shader_coeffs.sqrt_coeff);
+    printf("  FP_LGP(FP_LG_ACC): %.9f\n", profile.shader_coeffs.log_coeff);
+    printf("  FP_SINP(FP_SIN_ACC): %.9f\n", profile.shader_coeffs.sin_coeff);
+    printf("  FP_EXP(FP_EXP_ACC): %.9f\n", profile.shader_coeffs.exp_coeff);
+    printf("  DP_MULP(DP_MUL_ACC): %.9f\n", profile.shader_coeffs.dp_mul_coeff);
+    printf("  DP_DIVP(DP_DIV_ACC): %.9f\n", profile.shader_coeffs.dp_div_coeff);
+    printf("  SCHEDP(FP_INT): %.9f\n", profile.fp_int_coeff);
+    printf("  PIPEP(PIPE_A): %.9f\n", profile.pipe_a_coeff);
+    printf("  TENSORP(TENSOR_ACC): %.9f\n", profile.shader_coeffs.tensor_coeff);
+    printf("Unchanged coefficients keep their initial XML values.\n");
+    printf("========================================\n\n");
+  } else {
+    print_subcore_coefficient_profile(subcore_count, kernel_name);
+  }
+#else
+  (void)subcore_count;
+  (void)kernel_name;
+#endif
+}
+
+
+PowerscalingCoefficients *gpgpu_sim::get_scaling_coeffs() {
+#ifdef GPGPUSIM_POWER_MODEL
+  if (m_subcore_coefficient_table_initialized) {
+    return &m_runtime_scaling_coeffs;
+  }
+  return m_gpgpusim_wrapper->get_scaling_coeffs();
+#else
+  return NULL;
+#endif
+}
+
+
 void gpgpu_sim::print_stats(unsigned long long streamID) {
+
   gpgpu_ctx->stats->ptx_file_line_stats_write_file();
   gpu_print_stat(streamID);
 

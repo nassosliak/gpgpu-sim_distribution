@@ -151,6 +151,8 @@ class gpgpu_sim_wrapper {
   bool sanity_check(double a, double b);
 
   PowerscalingCoefficients* get_scaling_coeffs();
+  double get_perf_counter_scaling_coeff(int coeff_idx) const;
+  void set_perf_counter_scaling_coeff(int coeff_idx, double value);
   int get_kernel_sample_count() const;
   double get_kernel_perf_counter_avg(int perf_counter_idx) const;
   double get_kernel_power_component_avg(int power_comp_idx) const;

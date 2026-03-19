@@ -455,6 +455,23 @@ PowerscalingCoefficients* gpgpu_sim_wrapper::get_scaling_coeffs() {
   return scalingCoeffs;
 }
 
+double gpgpu_sim_wrapper::get_perf_counter_scaling_coeff(int coeff_idx) const {
+  if (coeff_idx < 0 ||
+      coeff_idx >= static_cast<int>(NUM_PERFORMANCE_COUNTERS)) {
+    return 0.0;
+  }
+  return p->sys.scaling_coefficients[coeff_idx];
+}
+
+void gpgpu_sim_wrapper::set_perf_counter_scaling_coeff(int coeff_idx,
+                                                       double value) {
+  if (coeff_idx < 0 ||
+      coeff_idx >= static_cast<int>(NUM_PERFORMANCE_COUNTERS)) {
+    return;
+  }
+  p->sys.scaling_coefficients[coeff_idx] = value;
+}
+
 int gpgpu_sim_wrapper::get_kernel_sample_count() const {
   return kernel_sample_count;
 }

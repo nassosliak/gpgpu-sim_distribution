@@ -4655,6 +4655,12 @@ void simt_core_cluster::reassign_warps_to_schedulers() {
   for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++)
     m_core[i]->reassign_warps_to_schedulers();
 }
+void simt_core_cluster::update_power_scaling_coeffs(
+    PowerscalingCoefficients *coeffs) {
+  for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++)
+    m_core[i]->scaling_coeffs = coeffs;
+}
+
 
 bool simt_core_cluster::icnt_injection_buffer_full(unsigned size, bool write) {
   unsigned request_size = size;

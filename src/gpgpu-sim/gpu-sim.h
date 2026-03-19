@@ -37,6 +37,7 @@
 #include <fstream>
 #include <iostream>
 #include <list>
+#include <map>
 #include "../abstract_hardware_model.h"
 #include "../option_parser.h"
 #include "../trace.h"
@@ -526,6 +527,7 @@ class gpgpu_sim_config : public power_config,
   // Sub-core reconfiguration
   bool g_reconfiguration_enabled;
   bool g_cold_start_classifier_enabled;
+  double g_subcore_scaling_factor;
 
   friend class gpgpu_sim;
   friend class sst_gpgpu_sim;
@@ -651,6 +653,11 @@ class gpgpu_sim : public gpgpu_t {
   bool hit_max_cta_count() const;
   kernel_info_t *select_kernel();
   PowerscalingCoefficients *get_scaling_coeffs();
+  void init_subcore_coefficient_table();
+  void apply_subcore_coefficient_profile(unsigned subcore_count,
+                                         const std::string &kernel_name);
+  void print_subcore_coefficient_profile(unsigned subcore_count,
+                                         const std::string &kernel_name) const;
   void decrement_kernel_latency();
 
   const gpgpu_sim_config &get_config() const { return m_config; }
@@ -764,6 +771,19 @@ class gpgpu_sim : public gpgpu_t {
   unsigned long long last_gpu_sim_insn;
 
   unsigned long long last_liveness_message_time;
+
+  struct subcore_coeff_profile_t {
+    PowerscalingCoefficients shader_coeffs;
+    double fp_int_coeff;
+    double reg_rd_coeff;
+    double reg_wr_coeff;
+    double non_reg_ops_coeff;
+    double pipe_a_coeff;
+  };
+
+  bool m_subcore_coefficient_table_initialized;
+  PowerscalingCoefficients m_runtime_scaling_coeffs;
+  std::map<unsigned, subcore_coeff_profile_t> m_subcore_coefficient_table;
 
   std::map<std::string, FuncCache> m_special_cache_config;
 
