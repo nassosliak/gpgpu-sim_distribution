@@ -471,6 +471,9 @@ class gpgpu_sim_config : public power_config,
   bool cold_start_classifier_enabled() const {
     return g_cold_start_classifier_enabled;
   }
+  bool force_cold_start_classifier_every_instance() const {
+    return g_force_cold_start_classifier_every_instance;
+  }
 
  private:
   void init_clock_domains(void);
@@ -527,6 +530,7 @@ class gpgpu_sim_config : public power_config,
   // Sub-core reconfiguration
   bool g_reconfiguration_enabled;
   bool g_cold_start_classifier_enabled;
+  bool g_force_cold_start_classifier_every_instance;
   double g_subcore_scaling_factor;
 
   friend class gpgpu_sim;

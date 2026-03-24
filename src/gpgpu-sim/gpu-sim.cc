@@ -788,6 +788,12 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
       "(1=On (default), 0=Off, use default 4 sub-cores)",
       "1");
   option_parser_register(
+      opp, "-force_cold_start_classifier_every_instance", OPT_BOOL,
+      &g_force_cold_start_classifier_every_instance,
+      "Force cold-start classifier at every kernel launch and bypass stored lookup-table predictions "
+      "(1=On, 0=Off (default))",
+      "0");
+  option_parser_register(
       opp, "-gpgpu_subcore_scaling_factor", OPT_DOUBLE,
       &g_subcore_scaling_factor,
       "Fixed scaling factor for sub-core coefficient when reconfiguration is disabled. "
@@ -831,46 +837,11 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
   // Check if we have a stored prediction for this kernel name from a previous
   // instance. If so, apply the predicted sub-core configuration.
   if (m_config.g_reconfiguration_enabled) {
-    auto it = m_kernel_subcore_predictions.find(kernel_name);
-    printf("\n========================================\n");
-    printf("KERNEL SUB-CORE PREDICTION TABLE\n");
-    printf("========================================\n");
-    for (const auto &entry : m_kernel_subcore_predictions) {
-      printf("Kernel Name: %s, Predicted Sub-cores: %u\n",
-             entry.first.c_str(), entry.second);
-    }
-    printf("========================================\n\n");
+    const bool force_coldstart_every_instance =
+        m_config.g_force_cold_start_classifier_every_instance;
 
-    if (it != m_kernel_subcore_predictions.end()) {
-      unsigned predicted_subcores = it->second;
-      launch_subcore_count = predicted_subcores;
-      printf("\n========================================\n");
-      printf("KERNEL LAUNCH - APPLYING STORED PREDICTION\n");
-      printf("Kernel Name: %s\n", kernel_name.c_str());
-      printf("Kernel UID: %u\n", kernelID);
-      printf("Stored Prediction: %u sub-cores (current: %u)\n",
-             predicted_subcores, m_active_subcore_limit);
-
-      if (predicted_subcores != m_active_subcore_limit) {
-        printf("RECONFIGURING: %u -> %u active sub-cores\n",
-               m_active_subcore_limit, predicted_subcores);
-        set_active_subcore_limit(predicted_subcores);
-        activate_subcore_limit();
-        // Redistribute all warp slots round-robin across the (new) active
-        // sub-cores on every SM.
-        for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
-          m_cluster[i]->reassign_warps_to_schedulers();
-        }
-        set_subcore_limit_start_cycle(gpu_tot_sim_cycle + gpu_sim_cycle);
-        init_warp_issue_logging();
-      } else {
-        printf("Sub-core count unchanged (%u), no reconfiguration needed.\n",
-               predicted_subcores);
-      }
-      printf("========================================\n\n");
-    } else {
-      // Cold-start: no exact or family match. Optionally run ML classifier,
-      // or fall back to default 4 sub-cores when disabled.
+    if (force_coldstart_every_instance) {
+      // Forced mode: always predict before launch and bypass lookup-table reuse.
       dim3 grid_dim = kinfo->get_grid_dim();
       dim3 block_dim = kinfo->get_cta_dim();
       const struct gpgpu_ptx_sim_info *kinfo_ptx =
@@ -878,44 +849,42 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
       int nregs = kinfo_ptx ? kinfo_ptx->regs : 0;
       int shmem = kinfo_ptx ? kinfo_ptx->smem : 0;
 
-      unsigned cold_start_sc = 4;  // Default first-instance fallback.
-      if (cold_start_sc > m_shader_config->gpgpu_num_sched_per_core)
-        cold_start_sc = m_shader_config->gpgpu_num_sched_per_core;
-      if (cold_start_sc < 1) cold_start_sc = 1;
+      unsigned predicted_sc = 4;
+      if (predicted_sc > m_shader_config->gpgpu_num_sched_per_core)
+        predicted_sc = m_shader_config->gpgpu_num_sched_per_core;
+      if (predicted_sc < 1) predicted_sc = 1;
 
       printf("\n========================================\n");
-      printf("KERNEL LAUNCH - COLD START (FIRST INSTANCE)\n");
-      printf("Kernel Name: %s (first instance)\n", kernel_name.c_str());
+      printf("KERNEL LAUNCH - FORCED COLD-START CLASSIFIER\n");
+      printf("Kernel Name: %s\n", kernel_name.c_str());
       printf("Kernel UID: %u\n", kernelID);
       printf("Grid: (%u, %u, %u)  Block: (%u, %u, %u)\n", grid_dim.x,
              grid_dim.y, grid_dim.z, block_dim.x, block_dim.y, block_dim.z);
       printf("Registers: %d  Shared Memory: %d bytes\n", nregs, shmem);
 
       if (m_config.g_cold_start_classifier_enabled) {
-        cold_start_sc = ColdStartClassifier::predict_from_launch_params(
+        predicted_sc = ColdStartClassifier::predict_from_launch_params(
             grid_dim.x, grid_dim.y, grid_dim.z, block_dim.x, block_dim.y,
             block_dim.z, nregs, shmem);
 
-        // Clamp to valid range [1, 4].
-        if (cold_start_sc < 1 || cold_start_sc > 4) cold_start_sc = 1;
-        if (cold_start_sc > m_shader_config->gpgpu_num_sched_per_core)
-          cold_start_sc = m_shader_config->gpgpu_num_sched_per_core;
-        if (cold_start_sc < 1) cold_start_sc = 1;
+        if (predicted_sc < 1 || predicted_sc > 4) predicted_sc = 1;
+        if (predicted_sc > m_shader_config->gpgpu_num_sched_per_core)
+          predicted_sc = m_shader_config->gpgpu_num_sched_per_core;
+        if (predicted_sc < 1) predicted_sc = 1;
 
-        printf("Cold-start ML prediction: %u sub-cores (current: %u)\n",
-               cold_start_sc, m_active_subcore_limit);
+        printf("Per-instance cold-start ML prediction: %u sub-cores (current: %u)\n",
+               predicted_sc, m_active_subcore_limit);
       } else {
-        printf("Cold-start default: %u sub-cores (current: %u)\n", cold_start_sc,
-               m_active_subcore_limit);
+        printf("Cold-start classifier disabled; using default: %u sub-cores (current: %u)\n",
+               predicted_sc, m_active_subcore_limit);
       }
 
-      launch_subcore_count = cold_start_sc;
-      printf("Using current sub-core count: %u\n", cold_start_sc);
+      launch_subcore_count = predicted_sc;
 
-      if (cold_start_sc != m_active_subcore_limit) {
-        printf("RECONFIGURING: %u -> %u active sub-cores (cold start)\n",
-               m_active_subcore_limit, cold_start_sc);
-        set_active_subcore_limit(cold_start_sc);
+      if (predicted_sc != m_active_subcore_limit) {
+        printf("RECONFIGURING: %u -> %u active sub-cores (forced per-instance mode)\n",
+               m_active_subcore_limit, predicted_sc);
+        set_active_subcore_limit(predicted_sc);
         activate_subcore_limit();
         for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
           m_cluster[i]->reassign_warps_to_schedulers();
@@ -924,11 +893,110 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
         init_warp_issue_logging();
       } else {
         printf("Sub-core count unchanged (%u), no reconfiguration needed.\n",
-               cold_start_sc);
+               predicted_sc);
       }
-      m_kernel_subcore_predictions[kernel_name] = cold_start_sc;
-      printf("(Runtime prediction will refine when this instance completes)\n");
+      printf("Lookup-table prediction reuse is bypassed in this mode.\n");
       printf("========================================\n\n");
+    } else {
+      auto it = m_kernel_subcore_predictions.find(kernel_name);
+      printf("\n========================================\n");
+      printf("KERNEL SUB-CORE PREDICTION TABLE\n");
+      printf("========================================\n");
+      for (const auto &entry : m_kernel_subcore_predictions) {
+        printf("Kernel Name: %s, Predicted Sub-cores: %u\n",
+               entry.first.c_str(), entry.second);
+      }
+      printf("========================================\n\n");
+
+      if (it != m_kernel_subcore_predictions.end()) {
+        unsigned predicted_subcores = it->second;
+        launch_subcore_count = predicted_subcores;
+        printf("\n========================================\n");
+        printf("KERNEL LAUNCH - APPLYING STORED PREDICTION\n");
+        printf("Kernel Name: %s\n", kernel_name.c_str());
+        printf("Kernel UID: %u\n", kernelID);
+        printf("Stored Prediction: %u sub-cores (current: %u)\n",
+               predicted_subcores, m_active_subcore_limit);
+
+        if (predicted_subcores != m_active_subcore_limit) {
+          printf("RECONFIGURING: %u -> %u active sub-cores\n",
+                 m_active_subcore_limit, predicted_subcores);
+          set_active_subcore_limit(predicted_subcores);
+          activate_subcore_limit();
+          // Redistribute all warp slots round-robin across the (new) active
+          // sub-cores on every SM.
+          for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
+            m_cluster[i]->reassign_warps_to_schedulers();
+          }
+          set_subcore_limit_start_cycle(gpu_tot_sim_cycle + gpu_sim_cycle);
+          init_warp_issue_logging();
+        } else {
+          printf("Sub-core count unchanged (%u), no reconfiguration needed.\n",
+                 predicted_subcores);
+        }
+        printf("========================================\n\n");
+      } else {
+        // Cold-start: no exact or family match. Optionally run ML classifier,
+        // or fall back to default 4 sub-cores when disabled.
+        dim3 grid_dim = kinfo->get_grid_dim();
+        dim3 block_dim = kinfo->get_cta_dim();
+        const struct gpgpu_ptx_sim_info *kinfo_ptx =
+            kinfo->entry()->get_kernel_info();
+        int nregs = kinfo_ptx ? kinfo_ptx->regs : 0;
+        int shmem = kinfo_ptx ? kinfo_ptx->smem : 0;
+
+        unsigned cold_start_sc = 4;  // Default first-instance fallback.
+        if (cold_start_sc > m_shader_config->gpgpu_num_sched_per_core)
+          cold_start_sc = m_shader_config->gpgpu_num_sched_per_core;
+        if (cold_start_sc < 1) cold_start_sc = 1;
+
+        printf("\n========================================\n");
+        printf("KERNEL LAUNCH - COLD START (FIRST INSTANCE)\n");
+        printf("Kernel Name: %s (first instance)\n", kernel_name.c_str());
+        printf("Kernel UID: %u\n", kernelID);
+        printf("Grid: (%u, %u, %u)  Block: (%u, %u, %u)\n", grid_dim.x,
+               grid_dim.y, grid_dim.z, block_dim.x, block_dim.y, block_dim.z);
+        printf("Registers: %d  Shared Memory: %d bytes\n", nregs, shmem);
+
+        if (m_config.g_cold_start_classifier_enabled) {
+          cold_start_sc = ColdStartClassifier::predict_from_launch_params(
+              grid_dim.x, grid_dim.y, grid_dim.z, block_dim.x, block_dim.y,
+              block_dim.z, nregs, shmem);
+
+          // Clamp to valid range [1, 4].
+          if (cold_start_sc < 1 || cold_start_sc > 4) cold_start_sc = 1;
+          if (cold_start_sc > m_shader_config->gpgpu_num_sched_per_core)
+            cold_start_sc = m_shader_config->gpgpu_num_sched_per_core;
+          if (cold_start_sc < 1) cold_start_sc = 1;
+
+          printf("Cold-start ML prediction: %u sub-cores (current: %u)\n",
+                 cold_start_sc, m_active_subcore_limit);
+        } else {
+          printf("Cold-start default: %u sub-cores (current: %u)\n", cold_start_sc,
+                 m_active_subcore_limit);
+        }
+
+        launch_subcore_count = cold_start_sc;
+        printf("Using current sub-core count: %u\n", cold_start_sc);
+
+        if (cold_start_sc != m_active_subcore_limit) {
+          printf("RECONFIGURING: %u -> %u active sub-cores (cold start)\n",
+                 m_active_subcore_limit, cold_start_sc);
+          set_active_subcore_limit(cold_start_sc);
+          activate_subcore_limit();
+          for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
+            m_cluster[i]->reassign_warps_to_schedulers();
+          }
+          set_subcore_limit_start_cycle(gpu_tot_sim_cycle + gpu_sim_cycle);
+          init_warp_issue_logging();
+        } else {
+          printf("Sub-core count unchanged (%u), no reconfiguration needed.\n",
+                 cold_start_sc);
+        }
+        m_kernel_subcore_predictions[kernel_name] = cold_start_sc;
+        printf("(Runtime prediction will refine when this instance completes)\n");
+        printf("========================================\n\n");
+      }
     }
   }
 
@@ -974,6 +1042,7 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
   }
   assert(n < m_running_kernels.size());
 }
+
 
 bool gpgpu_sim::can_start_kernel() {
   for (unsigned n = 0; n < m_running_kernels.size(); n++) {
@@ -1105,7 +1174,8 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
   // and STORE it for the NEXT instance of this same kernel (by name).
   // The stored prediction will be applied when the next instance of
   // this kernel is launched.
-  if (m_config.g_reconfiguration_enabled) {
+  if (m_config.g_reconfiguration_enabled &&
+      !m_config.g_force_cold_start_classifier_every_instance) {
     std::string kernel_name = kernel->name();
     printf("\n========================================\n");
     printf("KERNEL INSTANCE COMPLETED — PREDICTING SUB-CORE COUNT FOR NEXT INSTANCE\n");
