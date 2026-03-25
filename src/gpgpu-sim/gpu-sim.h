@@ -34,6 +34,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <fstream>
 #include <iostream>
 #include <list>
@@ -410,6 +411,11 @@ extern bool g_interactive_debugger_enabled;
 class gpgpu_sim_config : public power_config,
                          public gpgpu_functional_sim_config {
  public:
+  enum subcore_operating_mode_t {
+    SUBCORE_MODE_POWER_AGGRESSIVE = 0,
+    SUBCORE_MODE_PERFORMANCE_AGGRESSIVE
+  };
+
   gpgpu_sim_config(gpgpu_context *ctx)
       : m_shader_config(ctx), m_memory_config(ctx) {
     m_valid = false;
@@ -474,6 +480,16 @@ class gpgpu_sim_config : public power_config,
   bool force_cold_start_classifier_every_instance() const {
     return g_force_cold_start_classifier_every_instance;
   }
+  subcore_operating_mode_t subcore_operating_mode() const {
+    if (g_subcore_operating_mode == NULL) {
+      return SUBCORE_MODE_POWER_AGGRESSIVE;
+    }
+    if (!strcmp(g_subcore_operating_mode, "performance_aggressive") ||
+        !strcmp(g_subcore_operating_mode, "performance")) {
+      return SUBCORE_MODE_PERFORMANCE_AGGRESSIVE;
+    }
+    return SUBCORE_MODE_POWER_AGGRESSIVE;
+  }
 
  private:
   void init_clock_domains(void);
@@ -531,6 +547,7 @@ class gpgpu_sim_config : public power_config,
   bool g_reconfiguration_enabled;
   bool g_cold_start_classifier_enabled;
   bool g_force_cold_start_classifier_every_instance;
+  char *g_subcore_operating_mode;
   double g_subcore_scaling_factor;
 
   friend class gpgpu_sim;
@@ -594,6 +611,7 @@ class gpgpu_sim : public gpgpu_t {
   void set_prop(struct cudaDeviceProp *prop);
   unsigned decide_subcore_count(unsigned long long total_insn,
                                unsigned long long total_cycles,
+                               int nregs,
                                class gpgpu_sim_wrapper* power_wrapper);
 
   void launch(kernel_info_t *kinfo);

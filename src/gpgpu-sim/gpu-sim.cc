@@ -72,6 +72,7 @@
 #ifdef GPGPUSIM_POWER_MODEL
 #include "power_interface.h"
 #include "subcore_classifier_integration.h"
+#include "performance_subcore_classifier_integration.h"
 #include "coldstart_classifier.h"
 #else
 class gpgpu_sim_wrapper {};
@@ -80,6 +81,15 @@ class SubcoreFeatureExtractor {
   SubcoreFeatureExtractor(const gpgpu_sim*, const shader_core_config*,
                           const shader_core_stats*) {}
   int predict_optimal_subcores_with_proba(class gpgpu_sim_wrapper*) {
+    return 2;
+  }
+};
+class PerformanceSubcoreFeatureExtractor {
+ public:
+  PerformanceSubcoreFeatureExtractor(const gpgpu_sim*,
+                                     const shader_core_config*,
+                                     const shader_core_stats*) {}
+  int predict_optimal_subcores_with_proba(class gpgpu_sim_wrapper*, int) {
     return 2;
   }
 };
@@ -794,6 +804,11 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
       "(1=On, 0=Off (default))",
       "0");
   option_parser_register(
+      opp, "-subcore_operating_mode", OPT_CSTR,
+      &g_subcore_operating_mode,
+      "Sub-core classifier operating mode: power_aggressive (default) or performance_aggressive",
+      "power_aggressive");
+  option_parser_register(
       opp, "-gpgpu_subcore_scaling_factor", OPT_DOUBLE,
       &g_subcore_scaling_factor,
       "Fixed scaling factor for sub-core coefficient when reconfiguration is disabled. "
@@ -1135,20 +1150,30 @@ unsigned gpgpu_sim::finished_kernel() {
 
 //Classifier
 unsigned gpgpu_sim::decide_subcore_count(unsigned long long total_insn,
-                                        unsigned long long total_cycles,
-                                        class gpgpu_sim_wrapper* power_wrapper) {
+                                         unsigned long long total_cycles,
+                                         int nregs,
+                                         class gpgpu_sim_wrapper* power_wrapper) {
   (void)total_insn;
   (void)total_cycles;
-  // Create feature extractor
-  SubcoreFeatureExtractor extractor(this, m_shader_config, m_shader_stats);
-  
-  // Predict optimal subcore count using ML model with probabilities
-  int predicted_subcores = extractor.predict_optimal_subcores_with_proba(power_wrapper);
-  
-  // Validate the prediction is within valid range
+
+  int predicted_subcores = 2;
+  if (m_config.subcore_operating_mode() ==
+      gpgpu_sim_config::SUBCORE_MODE_PERFORMANCE_AGGRESSIVE) {
+    PerformanceSubcoreFeatureExtractor extractor(this, m_shader_config,
+                                                 m_shader_stats);
+    predicted_subcores =
+        extractor.predict_optimal_subcores_with_proba(power_wrapper, nregs);
+    printf("Classifier mode: performance_aggressive\n");
+  } else {
+    SubcoreFeatureExtractor extractor(this, m_shader_config, m_shader_stats);
+    predicted_subcores =
+        extractor.predict_optimal_subcores_with_proba(power_wrapper);
+    printf("Classifier mode: power_aggressive\n");
+  }
+
   if (predicted_subcores < 1) predicted_subcores = 1;
   if (predicted_subcores > 4) predicted_subcores = 4;
-  
+
   return static_cast<unsigned>(predicted_subcores);
 }
 
@@ -1198,12 +1223,16 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
     printf("Kernel IPC: %.4f\n", kernel_ipc);
 
     // Decide optimal sub-core count via classifier
+    const struct gpgpu_ptx_sim_info *kinfo_ptx =
+        kernel->entry()->get_kernel_info();
+    int nregs = kinfo_ptx ? kinfo_ptx->regs : 0;
+
     class gpgpu_sim_wrapper* power_wrapper = nullptr;
   #ifdef GPGPUSIM_POWER_MODEL
     power_wrapper = m_gpgpusim_wrapper;
   #endif
     unsigned subcore_count = decide_subcore_count(
-      total_instructions, total_cycles, power_wrapper);
+      total_instructions, total_cycles, nregs, power_wrapper);
 
     // Store the prediction for the NEXT instance of this kernel (by name)
     unsigned prev_prediction = 0;
