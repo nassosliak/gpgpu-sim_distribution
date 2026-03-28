@@ -480,6 +480,17 @@ class gpgpu_sim_config : public power_config,
   bool force_cold_start_classifier_every_instance() const {
     return g_force_cold_start_classifier_every_instance;
   }
+  subcore_operating_mode_t cold_start_subcore_operating_mode() const {
+    const char *mode = g_cold_start_subcore_operating_mode;
+    if (mode == NULL || !strcmp(mode, "inherit") || !strcmp(mode, "default")) {
+      return subcore_operating_mode();
+    }
+    if (!strcmp(mode, "performance_aggressive") ||
+        !strcmp(mode, "performance")) {
+      return SUBCORE_MODE_PERFORMANCE_AGGRESSIVE;
+    }
+    return SUBCORE_MODE_POWER_AGGRESSIVE;
+  }
   subcore_operating_mode_t subcore_operating_mode() const {
     if (g_subcore_operating_mode == NULL) {
       return SUBCORE_MODE_POWER_AGGRESSIVE;
@@ -548,6 +559,7 @@ class gpgpu_sim_config : public power_config,
   bool g_cold_start_classifier_enabled;
   bool g_force_cold_start_classifier_every_instance;
   char *g_subcore_operating_mode;
+  char *g_cold_start_subcore_operating_mode;
   double g_subcore_scaling_factor;
 
   friend class gpgpu_sim;

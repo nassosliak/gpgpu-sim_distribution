@@ -809,6 +809,11 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
       "Sub-core classifier operating mode: power_aggressive (default) or performance_aggressive",
       "power_aggressive");
   option_parser_register(
+      opp, "-cold_start_subcore_operating_mode", OPT_CSTR,
+      &g_cold_start_subcore_operating_mode,
+      "Cold-start classifier operating mode: inherit (default), power_aggressive, or performance_aggressive",
+      "inherit");
+  option_parser_register(
       opp, "-gpgpu_subcore_scaling_factor", OPT_DOUBLE,
       &g_subcore_scaling_factor,
       "Fixed scaling factor for sub-core coefficient when reconfiguration is disabled. "
@@ -878,9 +883,13 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
       printf("Registers: %d  Shared Memory: %d bytes\n", nregs, shmem);
 
       if (m_config.g_cold_start_classifier_enabled) {
-        predicted_sc = ColdStartClassifier::predict_from_launch_params(
+        ColdStartClassifierMode classifier_mode = COLDSTART_CLASSIFIER_DEFAULT;
+        if (m_config.cold_start_subcore_operating_mode() == gpgpu_sim_config::SUBCORE_MODE_PERFORMANCE_AGGRESSIVE) {
+          classifier_mode = COLDSTART_CLASSIFIER_PERFORMANCE_AGGRESSIVE;
+        }
+        predicted_sc = coldstart_classifier_predict(
             grid_dim.x, grid_dim.y, grid_dim.z, block_dim.x, block_dim.y,
-            block_dim.z, nregs, shmem);
+            block_dim.z, nregs, shmem, classifier_mode);
 
         if (predicted_sc < 1 || predicted_sc > 4) predicted_sc = 1;
         if (predicted_sc > m_shader_config->gpgpu_num_sched_per_core)
@@ -974,9 +983,13 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
         printf("Registers: %d  Shared Memory: %d bytes\n", nregs, shmem);
 
         if (m_config.g_cold_start_classifier_enabled) {
-          cold_start_sc = ColdStartClassifier::predict_from_launch_params(
+          ColdStartClassifierMode classifier_mode = COLDSTART_CLASSIFIER_DEFAULT;
+          if (m_config.cold_start_subcore_operating_mode() == gpgpu_sim_config::SUBCORE_MODE_PERFORMANCE_AGGRESSIVE) {
+            classifier_mode = COLDSTART_CLASSIFIER_PERFORMANCE_AGGRESSIVE;
+          }
+          cold_start_sc = coldstart_classifier_predict(
               grid_dim.x, grid_dim.y, grid_dim.z, block_dim.x, block_dim.y,
-              block_dim.z, nregs, shmem);
+              block_dim.z, nregs, shmem, classifier_mode);
 
           // Clamp to valid range [1, 4].
           if (cold_start_sc < 1 || cold_start_sc > 4) cold_start_sc = 1;
