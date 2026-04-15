@@ -38,7 +38,7 @@ public:
               return false;
           }
 
-          // Feature order MUST match DecisionTree::FEATURE_NAMES:
+          // Feature order MUST match SubcoreRandomForestClassifier::FEATURE_NAMES:
           //   [0] gpu_ipc, [1] gpu_occupancy, [2] avg_RFP, [3] avg_INTP,
           //   [4] avg_SCHEDP, [5] avg_FP_INT, [6] avg_INT_ACC,
           //   [7] avg_threads_per_warp
@@ -83,7 +83,7 @@ public:
 public:
     // Convenience method to predict optimal subcore count
     int predict_optimal_subcores(class gpgpu_sim_wrapper* power_wrapper) {
-        double features[DecisionTree::NUM_FEATURES];
+        double features[SubcoreRandomForestClassifier::NUM_FEATURES];
         
         if (!extract_features(features, power_wrapper)) {
             printf("Warning: Feature extraction failed, using default subcore count\n");
@@ -91,16 +91,16 @@ public:
         }
         
         // Use the classifier
-        int predicted_subcores = DecisionTree::predict(features);
+        int predicted_subcores = SubcoreRandomForestClassifier::predict(features);
         
         // Print debug info
         printf("\n========================================\n");
         printf("ML CLASSIFIER PREDICTION\n");
         printf("========================================\n");
         printf("Feature values:\n");
-        for (int i = 0; i < DecisionTree::NUM_FEATURES; i++) {
+        for (int i = 0; i < SubcoreRandomForestClassifier::NUM_FEATURES; i++) {
             printf("  %s: %.6f\n", 
-                   DecisionTree::FEATURE_NAMES[i].c_str(), 
+                   SubcoreRandomForestClassifier::FEATURE_NAMES[i].c_str(), 
                    features[i]);
         }
         printf("Predicted subcores: %d\n", predicted_subcores);
@@ -111,8 +111,8 @@ public:
     
     // Version with probability output
     int predict_optimal_subcores_with_proba(class gpgpu_sim_wrapper* power_wrapper) {
-        double features[DecisionTree::NUM_FEATURES];
-        double probabilities[DecisionTree::NUM_CLASSES];
+        double features[SubcoreRandomForestClassifier::NUM_FEATURES];
+        double probabilities[SubcoreRandomForestClassifier::NUM_CLASSES];
         
         if (!extract_features(features, power_wrapper)) {
             printf("Warning: Feature extraction failed, using default subcore count\n");
@@ -120,22 +120,22 @@ public:
         }
         
         // Use the classifier with probabilities
-        int predicted_subcores = DecisionTree::predict_proba(features, probabilities);
+        int predicted_subcores = SubcoreRandomForestClassifier::predict_proba(features, probabilities);
         
         // Print debug info with probabilities
         printf("\n========================================\n");
         printf("ML CLASSIFIER PREDICTION WITH PROBABILITIES\n");
         printf("========================================\n");
         printf("Feature values:\n");
-        for (int i = 0; i < DecisionTree::NUM_FEATURES; i++) {
+        for (int i = 0; i < SubcoreRandomForestClassifier::NUM_FEATURES; i++) {
             printf("  [%2d] %s: %.6f\n", i,
-                   DecisionTree::FEATURE_NAMES[i].c_str(), 
+                   SubcoreRandomForestClassifier::FEATURE_NAMES[i].c_str(), 
                    features[i]);
         }
         printf("\nProbabilities for each subcore count:\n");
-        for (int c = 0; c < DecisionTree::NUM_CLASSES; c++) {
+        for (int c = 0; c < SubcoreRandomForestClassifier::NUM_CLASSES; c++) {
             printf("  %d subcores: %.4f (%.1f%%)\n", 
-                   DecisionTree::CLASSES[c],
+                   SubcoreRandomForestClassifier::CLASSES[c],
                    probabilities[c],
                    probabilities[c] * 100.0);
         }
