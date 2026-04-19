@@ -151,6 +151,7 @@ class gpgpu_sim_wrapper {
   PowerscalingCoefficients* get_scaling_coeffs();
   double get_perf_counter_scaling_coeff(int coeff_idx) const;
   void set_perf_counter_scaling_coeff(int coeff_idx, double value);
+  void set_subcore_static_idle_scale_factor(double value);
   int get_kernel_sample_count() const;
   double get_kernel_perf_counter_avg(int perf_counter_idx) const;
   double get_kernel_power_component_avg(int power_comp_idx) const;
@@ -191,6 +192,7 @@ class gpgpu_sim_wrapper {
       sample_perf_counters;  // Current sample component perf. counts
   std::vector<double> initpower_coeff;
   std::vector<double> effpower_coeff;
+  double subcore_static_idle_scale_factor;
 
   // For calculating steady-state average
   unsigned sample_start;

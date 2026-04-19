@@ -106,6 +106,7 @@ gpgpu_sim_wrapper::gpgpu_sim_wrapper(bool power_simulation_enabled,
 
   const_dynamic_power = 0;
   proc_power = 0;
+  subcore_static_idle_scale_factor = 1.0;
 
   g_power_filename = NULL;
   g_power_trace_filename = NULL;
@@ -468,6 +469,13 @@ void gpgpu_sim_wrapper::set_perf_counter_scaling_coeff(int coeff_idx,
     return;
   }
   p->sys.scaling_coefficients[coeff_idx] = value;
+}
+
+void gpgpu_sim_wrapper::set_subcore_static_idle_scale_factor(double value) {
+  if (value < 0.0) {
+    value = 0.0;
+  }
+  subcore_static_idle_scale_factor = value;
 }
 
 int gpgpu_sim_wrapper::get_kernel_sample_count() const {
@@ -1096,6 +1104,7 @@ void gpgpu_sim_wrapper::update_components_power() {
 
   sample_cmp_pwr[IDLE_COREP] =
       proc->cores[0]->IdleCoreEnergy / (proc->cores[0]->executionTime);
+  double raw_idle_core_power = sample_cmp_pwr[IDLE_COREP];
 
   // This constant dynamic power (e.g., clock power) part is estimated via
   // regression model.
@@ -1116,6 +1125,9 @@ void gpgpu_sim_wrapper::update_components_power() {
   // Calculate component static powers
   sample_cmp_pwr[STATICP] = calculate_static_power();
 
+  sample_cmp_pwr[IDLE_COREP] *= subcore_static_idle_scale_factor;
+  sample_cmp_pwr[STATICP] *= subcore_static_idle_scale_factor;
+
   if (g_dvfs_enabled) {
     double voltage_ratio =
         modeled_chip_voltage / p->sys.modeled_chip_voltage_ref;
@@ -1133,6 +1145,7 @@ void gpgpu_sim_wrapper::update_components_power() {
   }
 
   proc_power += sample_cmp_pwr[CONSTP] + sample_cmp_pwr[STATICP];
+  proc_power += sample_cmp_pwr[IDLE_COREP] - raw_idle_core_power;
   if (!g_dvfs_enabled) {  // sanity check will fail when voltage scaling is
                           // applied, fix later
     double sum_pwr_cmp = 0;

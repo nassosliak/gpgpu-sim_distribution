@@ -11,9 +11,9 @@ class ColdStartClassifier {
 public:
     static constexpr int NUM_FEATURES = 5;
     static constexpr int NUM_CLASSES = 4;
-    static constexpr int NUM_NODES = 51;
+    static constexpr int NUM_NODES = 39;
 
-    // Feature names: grid_size, nregs, threads_per_sm, blocks_per_sm, reg_footprint
+    // Feature names: grid_size, block_size, total_threads, nregs, shmem
 
     // Scaler parameters
     static const double SCALER_MEAN[NUM_FEATURES];
@@ -56,15 +56,14 @@ public:
             int grid_x, int grid_y, int grid_z,
             int block_x, int block_y, int block_z,
             int nregs, int shmem) {
-        (void)shmem;
         int grid_size = grid_x * grid_y * grid_z;
         int block_size = block_x * block_y * block_z;
         double features[NUM_FEATURES] = {
             static_cast<double>(grid_size),
+            static_cast<double>(block_size),
+            static_cast<double>(grid_size) * block_size,
             static_cast<double>(nregs),
-            static_cast<double>(grid_size) * block_size / 80.0,
-            static_cast<double>(grid_size) / 80.0,
-            static_cast<double>(nregs) * block_size
+            static_cast<double>(shmem)
         };
         return predict(features);
     }

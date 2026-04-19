@@ -1870,6 +1870,26 @@ void gpgpu_sim::apply_subcore_coefficient_profile(
     profile = it->second;
   }
 
+  double static_idle_scale = 1.0;
+  switch (subcore_count) {
+    case 1:
+      static_idle_scale = 0.4488;
+      break;
+    case 2:
+      static_idle_scale = 0.6346;
+      break;
+    case 3:
+      static_idle_scale = 0.8231;
+      break;
+    case 4:
+      static_idle_scale = 1.0;
+      break;
+    default:
+      static_idle_scale = 1.0;
+      break;
+  }
+  m_gpgpusim_wrapper->set_subcore_static_idle_scale_factor(static_idle_scale);
+
   m_runtime_scaling_coeffs = profile.shader_coeffs;
 
   // Apply coefficients that feed SUBCORE_COMPONENTS via wrapper set_*_power.
