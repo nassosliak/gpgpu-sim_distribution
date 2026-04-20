@@ -9,11 +9,13 @@
 
 class ColdStartClassifier {
 public:
-    static constexpr int NUM_FEATURES = 5;
+    static constexpr int NUM_FEATURES = 14;
     static constexpr int NUM_CLASSES = 4;
-    static constexpr int NUM_NODES = 39;
+    static constexpr int NUM_NODES = 47;
 
-    // Feature names: grid_size, block_size, total_threads, nregs, shmem
+    // Feature names: grid_size, block_size, total_threads, nregs, shmem,
+    // grid_dim_x, grid_dim_y, block_dim_x, block_dim_y, threads_per_sm,
+    // blocks_per_sm, reg_footprint, shmem_per_thread, occupancy_proxy
 
     // Scaler parameters
     static const double SCALER_MEAN[NUM_FEATURES];
@@ -63,109 +65,17 @@ public:
             static_cast<double>(block_size),
             static_cast<double>(grid_size) * block_size,
             static_cast<double>(nregs),
-            static_cast<double>(shmem)
-        };
-        return predict(features);
-    }
-};
-
-// Performance-aggressive cold-start classifier
-class PerformanceAggressiveColdStartClassifier {
-public:
-    static constexpr int NUM_FEATURES = 5;
-    static constexpr int NUM_CLASSES = 4;
-    static constexpr int NUM_NODES = 31;
-
-    // Feature names: grid_size, block_size, total_threads, nregs, shmem
-
-    // Predict optimal sub-core count from pre-launch features
-    static int predict(const double features[NUM_FEATURES]) {
-        static const int CHILDREN_LEFT[NUM_NODES] = {
-            1, 2, 3, -1, 5, -1, -1, 8, -1, -1, 11, 12, 13, 14, -1, -1, 17,
-            -1, -1, 20, 21, -1, 23, -1, -1, -1, 27, 28, -1, -1, -1
-        };
-        static const int CHILDREN_RIGHT[NUM_NODES] = {
-            10, 7, 4, -1, 6, -1, -1, 9, -1, -1, 26, 19, 16, 15, -1, -1, 18,
-            -1, -1, 25, 22, -1, 24, -1, -1, -1, 30, 29, -1, -1, -1
-        };
-        static const int FEATURE[NUM_NODES] = {
-            3, 3, 1, -2, 0, -2, -2, 3, -2, -2, 1, 2, 2, 1, -2, -2, 0, -2, -2,
-            0, 1, -2, 2, -2, -2, -2, 3, 3, -2, -2, -2
-        };
-        static const double THRESHOLD[NUM_NODES] = {
-            -0.7291855216, -1.0149688721, -0.5655195415, -2.0000000000,
-            -0.1336221285, -2.0000000000, -2.0000000000, -0.8516640961,
-            -2.0000000000, -2.0000000000, 0.3236210048, -0.1026010439,
-            -0.1052326038, -1.0841848850, -2.0000000000, -2.0000000000,
-            0.0630277805, -2.0000000000, -2.0000000000, 0.9871941507,
-            -1.0100898147, -2.0000000000, -0.0811006278, -2.0000000000,
-            -2.0000000000, -2.0000000000, 0.6997313127, -0.2392711751,
-            -2.0000000000, -2.0000000000, -2.0000000000
-        };
-        static const double SCALER_MEAN[NUM_FEATURES] = {
-            86.7634083045, 314.1176470588, 16835.7370242215, 25.4303633218,
-            901.1072664360
-        };
-        static const double SCALER_STD[NUM_FEATURES] = {
-            566.9974664695, 215.9388610128, 142880.9758991596, 12.2470388430,
-            2001.4693267704
-        };
-
-        double scaled[NUM_FEATURES];
-        for (int i = 0; i < NUM_FEATURES; i++) {
-            scaled[i] = (features[i] - SCALER_MEAN[i]) / SCALER_STD[i];
-        }
-        int node = 0;
-        while (CHILDREN_LEFT[node] != -1) {
-            if (scaled[FEATURE[node]] <= THRESHOLD[node])
-                node = CHILDREN_LEFT[node];
-            else
-                node = CHILDREN_RIGHT[node];
-        }
-        static const int CLASSES[NUM_CLASSES] = {1, 2, 3, 4};
-        static const double VALUE[NUM_NODES][NUM_CLASSES] = {
-            {578.0, 578.0, 578.0, 578.0}, {9.9, 0.0, 578.0, 36.5},
-            {9.9, 0.0, 2.5, 33.8}, {9.9, 0.0, 0.0, 0.0},
-            {0.0, 0.0, 2.5, 33.8}, {0.0, 0.0, 2.5, 16.9},
-            {0.0, 0.0, 0.0, 16.9}, {0.0, 0.0, 575.5, 2.6},
-            {0.0, 0.0, 558.6, 0.0}, {0.0, 0.0, 16.8, 2.6},
-            {568.1, 578.0, 0.0, 541.5}, {568.1, 22.5, 0.0, 518.1},
-            {465.5, 22.5, 0.0, 2.6}, {448.4, 0.0, 0.0, 2.6},
-            {422.2, 0.0, 0.0, 0.0}, {26.1, 0.0, 0.0, 2.6},
-            {17.1, 22.5, 0.0, 0.0}, {0.0, 22.5, 0.0, 0.0},
-            {17.1, 0.0, 0.0, 0.0}, {102.6, 0.0, 0.0, 515.5},
-            {10.8, 0.0, 0.0, 510.3}, {10.8, 0.0, 0.0, 0.0},
-            {0.0, 0.0, 0.0, 510.3}, {0.0, 0.0, 0.0, 20.8},
-            {0.0, 0.0, 0.0, 489.5}, {91.8, 0.0, 0.0, 5.2},
-            {0.0, 555.5, 0.0, 23.4}, {0.0, 555.5, 0.0, 0.0},
-            {0.0, 535.1, 0.0, 0.0}, {0.0, 20.4, 0.0, 0.0},
-            {0.0, 0.0, 0.0, 23.4}
-        };
-
-        int best = 0;
-        double max_val = VALUE[node][0];
-        for (int c = 1; c < NUM_CLASSES; c++) {
-            if (VALUE[node][c] > max_val) {
-                max_val = VALUE[node][c];
-                best = c;
-            }
-        }
-        return CLASSES[best];
-    }
-
-    // Convenience: predict from raw grid/block parameters
-    static int predict_from_launch_params(
-            int grid_x, int grid_y, int grid_z,
-            int block_x, int block_y, int block_z,
-            int nregs, int shmem) {
-        int grid_size = grid_x * grid_y * grid_z;
-        int block_size = block_x * block_y * block_z;
-        double features[NUM_FEATURES] = {
-            static_cast<double>(grid_size),
-            static_cast<double>(block_size),
-            static_cast<double>(grid_size) * block_size,
-            static_cast<double>(nregs),
-            static_cast<double>(shmem)
+            static_cast<double>(shmem),
+            static_cast<double>(grid_x),
+            static_cast<double>(grid_y),
+            static_cast<double>(block_x),
+            static_cast<double>(block_y),
+            static_cast<double>(grid_size) * block_size / 80.0,
+            static_cast<double>(grid_size) / 80.0,
+            static_cast<double>(nregs) * block_size,
+            block_size > 0 ? static_cast<double>(shmem) / block_size : 0.0,
+            std::min(static_cast<double>(block_size) / 1024.0, 1.0) *
+                std::min(static_cast<double>(grid_size) / 80.0, 1.0)
         };
         return predict(features);
     }
@@ -181,10 +91,7 @@ inline int coldstart_classifier_predict(
         int block_x, int block_y, int block_z,
         int nregs, int shmem,
         ColdStartClassifierMode mode = COLDSTART_CLASSIFIER_DEFAULT) {
-    if (mode == COLDSTART_CLASSIFIER_PERFORMANCE_AGGRESSIVE) {
-        return PerformanceAggressiveColdStartClassifier::predict_from_launch_params(
-            grid_x, grid_y, grid_z, block_x, block_y, block_z, nregs, shmem);
-    }
+    (void)mode;
     return ColdStartClassifier::predict_from_launch_params(
         grid_x, grid_y, grid_z, block_x, block_y, block_z, nregs, shmem);
 }
