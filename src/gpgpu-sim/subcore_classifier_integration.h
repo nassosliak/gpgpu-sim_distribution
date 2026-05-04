@@ -43,42 +43,66 @@ public:
         }
 
         // Feature order MUST match SubcoreRandomForestClassifier::FEATURE_NAMES:
-        //   [0] gpu_ipc, [1] gpu_occupancy, [2] gpu_sim_insn, [3] gpu_sim_cycle,
-        //   [4] avg_INTP, [5] avg_INT_MULP, [6] avg_TOT_INST, [7] avg_INT_ACC
+        //   [0] cmp_gpu_ipc, [1] cmp_gpu_occupancy, [2] cmp_gpu_sim_insn,
+        //   [3] cmp_avg_IBP, [4] cmp_avg_RFP, [5] cmp_avg_INTP, [6] cmp_avg_INT_MULP,
+        //   [7] cmp_avg_SCHEDP, [8] cmp_avg_TOT_INST, [9] cmp_avg_FP_INT,
+        //   [10] cmp_avg_REG_RD, [11] cmp_avg_REG_WR, [12] cmp_avg_INT_ACC,
+        //   [13] cmp_avg_INT_MUL_ACC, [14] cmp_avg_threads_per_warp
         //
-        // Power component indices (from pwr_cmp_t enum):
-        //   INTP=7, INT_MULP=12
-        // Performance counter indices (from perf_count_t enum):
-        //   TOT_INST=0, INT_ACC=16
+        // Power component indices:
+        //   IBP=0, RFP=6, INTP=7, INT_MULP=12, SCHEDP=24
+        // Performance counter indices:
+        //   TOT_INST=0, FP_INT=1, REG_RD=13, REG_WR=14, INT_ACC=16, INT_MUL_ACC=21
 
-        // Feature 0: gpu_ipc
+        // Feature 0: cmp_gpu_ipc
         features[0] = (m_gpu->gpu_sim_cycle > 0)
                       ? static_cast<double>(m_gpu->gpu_sim_insn) /
                             static_cast<double>(m_gpu->gpu_sim_cycle)
                       : 0.0;
 
-        // Feature 1: gpu_occupancy
+        // Feature 1: cmp_gpu_occupancy
         features[1] = (m_gpu->gpu_occupancy.aggregate_theoretical_warp_slots > 0)
                       ? m_gpu->gpu_occupancy.get_occ_fraction() * 100.0
                       : 0.0;
 
-        // Feature 2: gpu_sim_insn
+        // Feature 2: cmp_gpu_sim_insn
         features[2] = static_cast<double>(m_gpu->gpu_sim_insn);
 
-        // Feature 3: gpu_sim_cycle
-        features[3] = static_cast<double>(m_gpu->gpu_sim_cycle);
+        // Feature 3: cmp_avg_IBP (power component index IBP = 0)
+        features[3] = power_wrapper->get_kernel_power_component_avg(0);
 
-        // Feature 4: avg_INTP (power component index INTP = 7)
-        features[4] = power_wrapper->get_kernel_power_component_avg(7);
+        // Feature 4: cmp_avg_RFP (power component index RFP = 6)
+        features[4] = power_wrapper->get_kernel_power_component_avg(6);
 
-        // Feature 5: avg_INT_MULP (power component index INT_MULP = 12)
-        features[5] = power_wrapper->get_kernel_power_component_avg(12);
+        // Feature 5: cmp_avg_INTP (power component index INTP = 7)
+        features[5] = power_wrapper->get_kernel_power_component_avg(7);
 
-        // Feature 6: avg_TOT_INST (performance counter index TOT_INST = 0)
-        features[6] = power_wrapper->get_kernel_perf_counter_avg(0);
+        // Feature 6: cmp_avg_INT_MULP (power component index INT_MULP = 12)
+        features[6] = power_wrapper->get_kernel_power_component_avg(12);
 
-        // Feature 7: avg_INT_ACC (performance counter index INT_ACC = 16)
-        features[7] = power_wrapper->get_kernel_perf_counter_avg(16);
+        // Feature 7: cmp_avg_SCHEDP (power component index SCHEDP = 24)
+        features[7] = power_wrapper->get_kernel_power_component_avg(24);
+
+        // Feature 8: cmp_avg_TOT_INST (performance counter index TOT_INST = 0)
+        features[8] = power_wrapper->get_kernel_perf_counter_avg(0);
+
+        // Feature 9: cmp_avg_FP_INT (performance counter index FP_INT = 1)
+        features[9] = power_wrapper->get_kernel_perf_counter_avg(1);
+
+        // Feature 10: cmp_avg_REG_RD (performance counter index REG_RD = 13)
+        features[10] = power_wrapper->get_kernel_perf_counter_avg(13);
+
+        // Feature 11: cmp_avg_REG_WR (performance counter index REG_WR = 14)
+        features[11] = power_wrapper->get_kernel_perf_counter_avg(14);
+
+        // Feature 12: cmp_avg_INT_ACC (performance counter index INT_ACC = 16)
+        features[12] = power_wrapper->get_kernel_perf_counter_avg(16);
+
+        // Feature 13: cmp_avg_INT_MUL_ACC (performance counter index INT_MUL_ACC = 21)
+        features[13] = power_wrapper->get_kernel_perf_counter_avg(21);
+
+        // Feature 14: cmp_avg_threads_per_warp
+        features[14] = power_wrapper->get_kernel_avg_threads_per_warp();
 
         return true;
     }

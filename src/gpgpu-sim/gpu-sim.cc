@@ -73,7 +73,7 @@
 #include "power_interface.h"
 #include "subcore_classifier_integration.h"
 #include "performance_subcore_classifier_integration.h"
-#include "coldstart_classifier.h"
+#include "coldstart_classifier_integration.h"
 #else
 class gpgpu_sim_wrapper {};
 class SubcoreFeatureExtractor {
@@ -1653,6 +1653,19 @@ void gpgpu_sim::update_stats() {
   m_total_cta_launched = 0;
   gpu_completed_cta = 0;
   gpu_occupancy = occupancy_stats();
+  
+  // Scale gpu_occupancy based on active subcore count
+  // If subcore_count is 4, multiply by 1
+  // If subcore_count is 3, multiply by 4/3
+  // If subcore_count is 2, multiply by 2
+  // If subcore_count is 1, multiply by 4
+  // General formula: multiply by (4 / active_subcore_count)
+  unsigned active_subcores = m_active_subcore_limit;
+  if (active_subcores > 0 && active_subcores <= 4) {
+    double scale_factor = 4.0 / static_cast<double>(active_subcores);
+    gpu_occupancy.aggregate_warp_slot_filled = 
+        static_cast<unsigned long long>(gpu_occupancy.aggregate_warp_slot_filled * scale_factor);
+  }
 }
 
 void gpgpu_sim::init_subcore_coefficient_table() {

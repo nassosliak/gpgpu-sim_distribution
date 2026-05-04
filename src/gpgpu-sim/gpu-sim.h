@@ -844,6 +844,8 @@ class gpgpu_sim : public gpgpu_t {
   unsigned long long gpu_tot_sim_insn;
   unsigned long long gpu_sim_insn_last_update;
   unsigned gpu_sim_insn_last_update_sid;
+  // gpu_occupancy is scaled based on active subcore count:
+  // multiplied by (4 / active_subcore_count) during update_stats()
   occupancy_stats gpu_occupancy;
   occupancy_stats gpu_tot_occupancy;
 

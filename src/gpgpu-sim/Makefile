@@ -71,6 +71,8 @@ OUTPUT_DIR=$(SIM_OBJ_FILES_DIR)/gpgpu-sim
 SRCS = $(shell ls *.cc)
 
 EXCLUDES = 
+# Exclude old decision tree coldstart classifier - using header-only RF version instead
+EXCLUDES += coldstart_classifier.cc
 
 ifeq ($(GPGPUSIM_POWER_MODEL), )
 EXCLUDES += power_interface.cc
