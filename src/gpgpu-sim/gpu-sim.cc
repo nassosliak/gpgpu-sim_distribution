@@ -889,7 +889,7 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
         }
         predicted_sc = coldstart_classifier_predict(
             grid_dim.x, grid_dim.y, grid_dim.z, block_dim.x, block_dim.y,
-            block_dim.z, nregs, shmem, classifier_mode);
+            block_dim.z, nregs, shmem, classifier_mode, m_active_subcore_limit);
 
         if (predicted_sc < 1 || predicted_sc > 4) predicted_sc = 1;
         if (predicted_sc > m_shader_config->gpgpu_num_sched_per_core)
@@ -989,7 +989,7 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
           }
           cold_start_sc = coldstart_classifier_predict(
               grid_dim.x, grid_dim.y, grid_dim.z, block_dim.x, block_dim.y,
-              block_dim.z, nregs, shmem, classifier_mode);
+              block_dim.z, nregs, shmem, classifier_mode, m_active_subcore_limit);
 
           // Clamp to valid range [1, 4].
           if (cold_start_sc < 1 || cold_start_sc > 4) cold_start_sc = 1;
@@ -2198,9 +2198,10 @@ void gpgpu_sim::gpu_print_stat(unsigned long long streamID) {
                                        (gpu_tot_sim_cycle + gpu_sim_cycle));
   printf("gpu_tot_issued_cta = %lld\n",
          gpu_tot_issued_cta + m_total_cta_launched);
-  printf("gpu_occupancy = %.4f%% \n", gpu_occupancy.get_occ_fraction() * 100);
+  double occupancy_scale_factor = 4.0 / ((m_active_subcore_limit < 1) ? 1 : (m_active_subcore_limit > 4) ? 4 : m_active_subcore_limit);
+  printf("gpu_occupancy = %.4f%% \n", gpu_occupancy.get_occ_fraction() * 100 * occupancy_scale_factor);
   printf("gpu_tot_occupancy = %.4f%% \n",
-         (gpu_occupancy + gpu_tot_occupancy).get_occ_fraction() * 100);
+         (gpu_occupancy + gpu_tot_occupancy).get_occ_fraction() * 100 * occupancy_scale_factor);
 
   fprintf(statfout, "max_total_param_size = %llu\n",
           gpgpu_ctx->device_runtime->g_max_total_param_size);
