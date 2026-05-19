@@ -22,10 +22,17 @@ class PerformanceSubcoreFeatureExtractor {
         m_shader_config(shader_config),
         m_shader_stats(shader_stats) {}
 
-  bool extract_features(double* features, class gpgpu_sim_wrapper* power_wrapper,
-                        int nregs) {
+  bool extract_features(double* features,
+                       unsigned long long total_insn,
+                       unsigned long long total_cycles,
+                       int nregs,
+                       class gpgpu_sim_wrapper* power_wrapper,
+                       class kernel_info_t* kernel) {
     (void)m_shader_config;
     (void)m_shader_stats;
+    (void)total_insn;
+    (void)total_cycles;
+    (void)kernel;
 
     if (!power_wrapper) {
       printf("Warning: Power wrapper is NULL, cannot extract performance-mode metrics\n");
@@ -63,12 +70,15 @@ class PerformanceSubcoreFeatureExtractor {
     return true;
   }
 
-  int predict_optimal_subcores_with_proba(class gpgpu_sim_wrapper* power_wrapper,
-                                          int nregs) {
+  int predict_optimal_subcores_with_proba(unsigned long long total_insn,
+                                          unsigned long long total_cycles,
+                                          int nregs,
+                                          class gpgpu_sim_wrapper* power_wrapper,
+                                          class kernel_info_t* kernel) {
     double features[performance_classifier::DecisionTree::NUM_FEATURES];
     double probabilities[performance_classifier::DecisionTree::NUM_CLASSES];
 
-    if (!extract_features(features, power_wrapper, nregs)) {
+    if (!extract_features(features, total_insn, total_cycles, nregs, power_wrapper, kernel)) {
       printf("Warning: Performance-mode feature extraction failed, using default subcore count\n");
       return 2;
     }

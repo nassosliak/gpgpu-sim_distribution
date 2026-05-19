@@ -9,25 +9,87 @@
 
 class ColdStartClassifier {
 public:
-    static constexpr int NUM_FEATURES = 14;
+    static constexpr int NUM_FEATURES = 9;
     static constexpr int NUM_CLASSES = 4;
-    static constexpr int NUM_NODES = 47;
+    static constexpr int NUM_NODES = 61;
 
-    // Feature names: grid_size, block_size, total_threads, nregs, shmem,
-    // grid_dim_x, grid_dim_y, block_dim_x, block_dim_y, threads_per_sm,
-    // blocks_per_sm, reg_footprint, shmem_per_thread, occupancy_proxy
+    // Feature names: block_size, nregs, shmem, grid_dim_x, grid_dim_y, block_dim_x, block_dim_y, reg_footprint, shmem_per_thread
 
     // Scaler parameters
-    static const double SCALER_MEAN[NUM_FEATURES];
-    static const double SCALER_STD[NUM_FEATURES];
+    static constexpr double SCALER_MEAN[9] = {274.8106151990, 27.9067903096, 1608.9096300764, 495.8723110173, 74.6172848814, 190.0737836751, 5.9582830720, 7315.5995174910, 11.0301356114};
+    static constexpr double SCALER_STD[9] = {148.8003465865, 17.0672624536, 4222.9965160135, 2485.5135288641, 507.3716147303, 199.2271925476, 6.7668551378, 5853.0492773968, 31.6792101292};
 
     // Decision tree structure
-    static const int CHILDREN_LEFT[NUM_NODES];
-    static const int CHILDREN_RIGHT[NUM_NODES];
-    static const int FEATURE[NUM_NODES];
-    static const double THRESHOLD[NUM_NODES];
-    static const double VALUE[NUM_NODES][NUM_CLASSES];
-    static const int CLASSES[NUM_CLASSES];
+    static constexpr int CHILDREN_LEFT[61] = {1, 2, 3, 4, 5, -1, 7, -1, 9, -1, 11, -1, 13, -1, 15, -1, -1, 18, 19, -1, 21, -1, -1, 24, -1, -1, 27, 28, -1, 30, -1, -1, -1, 34, -1, 36, -1, 38, 39, -1, -1, 42, -1, -1, 45, 46, -1, 48, 49, -1, 51, 52, -1, -1, -1, 56, -1, -1, 59, -1, -1};
+    static constexpr int CHILDREN_RIGHT[61] = {44, 33, 26, 17, 6, -1, 8, -1, 10, -1, 12, -1, 14, -1, 16, -1, -1, 23, 20, -1, 22, -1, -1, 25, -1, -1, 32, 29, -1, 31, -1, -1, -1, 35, -1, 37, -1, 41, 40, -1, -1, 43, -1, -1, 58, 47, -1, 55, 50, -1, 54, 53, -1, -1, -1, 57, -1, -1, 60, -1, -1};
+    static constexpr int FEATURE[61] = {6, 2, 1, 1, 7, -2, 3, -2, 3, -2, 3, -2, 3, -2, 3, -2, -2, 3, 7, -2, 7, -2, -2, 1, -2, -2, 5, 5, -2, 3, -2, -2, -2, 8, -2, 2, -2, 3, 4, -2, -2, 8, -2, -2, 4, 4, -2, 3, 8, -2, 4, 4, -2, -2, -2, 2, -2, -2, 2, -2, -2};
+    static constexpr double THRESHOLD[61] = {0.8928396851, -0.0172649063, 0.0347571680, -0.8734142482, -0.8562373519, -2.0000000000, -0.1449890733, -2.0000000000, -0.1305051446, -2.0000000000, 4.4683433771, -2.0000000000, 6.9434859753, -2.0000000000, 9.5849924088, -2.0000000000, -2.0000000000, 0.6534374952, 0.2809476508, -2.0000000000, 0.7183265090, -2.0000000000, -2.0000000000, -0.4046806321, -2.0000000000, -2.0000000000, 0.1702890848, -0.8335899413, -2.0000000000, 0.3663740717, -2.0000000000, -2.0000000000, -2.0000000000, 0.2856128551, -2.0000000000, 0.8063208759, -2.0000000000, -0.1968898177, -0.1194731481, -2.0000000000, -2.0000000000, 6.7542674541, -2.0000000000, -2.0000000000, -0.0741414856, -0.1263714433, -2.0000000000, -0.1940734982, -0.2219163738, -2.0000000000, -0.1224295609, -0.1244005002, -2.0000000000, -2.0000000000, -2.0000000000, -0.1385058276, -2.0000000000, -2.0000000000, -0.2521691918, -2.0000000000, -2.0000000000};
+
+    static constexpr double VALUE[61][4] = {
+        {9948.0, 9948.0, 9948.0, 9948.0},
+        {7866.0, 1380.0, 9948.0, 8329.0},
+        {6570.0, 986.0, 9217.0, 1001.0},
+        {6372.0, 986.0, 1348.0, 467.0},
+        {30.0, 538.0, 1348.0, 0.0},
+        {16.0, 430.0, 0.0, 0.0},
+        {14.0, 108.0, 1348.0, 0.0},
+        {0.0, 0.0, 668.0, 0.0},
+        {14.0, 108.0, 680.0, 0.0},
+        {0.0, 108.0, 0.0, 0.0},
+        {14.0, 0.0, 680.0, 0.0},
+        {0.0, 0.0, 465.0, 0.0},
+        {14.0, 0.0, 215.0, 0.0},
+        {7.0, 0.0, 0.0, 0.0},
+        {7.0, 0.0, 215.0, 0.0},
+        {7.0, 0.0, 127.0, 0.0},
+        {0.0, 0.0, 88.0, 0.0},
+        {6342.0, 448.0, 0.0, 467.0},
+        {6342.0, 338.0, 0.0, 0.0},
+        {4199.0, 0.0, 0.0, 0.0},
+        {2143.0, 338.0, 0.0, 0.0},
+        {2072.0, 338.0, 0.0, 0.0},
+        {71.0, 0.0, 0.0, 0.0},
+        {0.0, 110.0, 0.0, 467.0},
+        {0.0, 110.0, 0.0, 0.0},
+        {0.0, 0.0, 0.0, 467.0},
+        {198.0, 0.0, 7869.0, 534.0},
+        {198.0, 0.0, 7869.0, 0.0},
+        {192.0, 0.0, 0.0, 0.0},
+        {6.0, 0.0, 7869.0, 0.0},
+        {0.0, 0.0, 7869.0, 0.0},
+        {6.0, 0.0, 0.0, 0.0},
+        {0.0, 0.0, 0.0, 534.0},
+        {1296.0, 394.0, 731.0, 7328.0},
+        {0.0, 0.0, 0.0, 7328.0},
+        {1296.0, 394.0, 731.0, 0.0},
+        {1291.0, 0.0, 0.0, 0.0},
+        {5.0, 394.0, 731.0, 0.0},
+        {0.0, 394.0, 87.0, 0.0},
+        {0.0, 298.0, 0.0, 0.0},
+        {0.0, 96.0, 87.0, 0.0},
+        {5.0, 0.0, 644.0, 0.0},
+        {0.0, 0.0, 588.0, 0.0},
+        {5.0, 0.0, 56.0, 0.0},
+        {2082.0, 8568.0, 0.0, 1619.0},
+        {2082.0, 8466.0, 0.0, 0.0},
+        {421.0, 0.0, 0.0, 0.0},
+        {1661.0, 8466.0, 0.0, 0.0},
+        {793.0, 1370.0, 0.0, 0.0},
+        {784.0, 1075.0, 0.0, 0.0},
+        {9.0, 295.0, 0.0, 0.0},
+        {9.0, 96.0, 0.0, 0.0},
+        {2.0, 96.0, 0.0, 0.0},
+        {7.0, 0.0, 0.0, 0.0},
+        {0.0, 199.0, 0.0, 0.0},
+        {868.0, 7096.0, 0.0, 0.0},
+        {868.0, 4941.0, 0.0, 0.0},
+        {0.0, 2155.0, 0.0, 0.0},
+        {0.0, 102.0, 0.0, 1619.0},
+        {0.0, 102.0, 0.0, 0.0},
+        {0.0, 0.0, 0.0, 1619.0}
+    };
+
+    static constexpr int CLASSES[4] = {1, 2, 3, 4};
 
     // Predict optimal sub-core count from pre-launch features
     static int predict(const double features[NUM_FEATURES]) {
@@ -58,42 +120,19 @@ public:
             int grid_x, int grid_y, int grid_z,
             int block_x, int block_y, int block_z,
             int nregs, int shmem) {
-        int grid_size = grid_x * grid_y * grid_z;
         int block_size = block_x * block_y * block_z;
         double features[NUM_FEATURES] = {
-            static_cast<double>(grid_size),
             static_cast<double>(block_size),
-            static_cast<double>(grid_size) * block_size,
             static_cast<double>(nregs),
             static_cast<double>(shmem),
             static_cast<double>(grid_x),
             static_cast<double>(grid_y),
             static_cast<double>(block_x),
             static_cast<double>(block_y),
-            static_cast<double>(grid_size) * block_size / 80.0,
-            static_cast<double>(grid_size) / 80.0,
             static_cast<double>(nregs) * block_size,
-            block_size > 0 ? static_cast<double>(shmem) / block_size : 0.0,
-            std::min(static_cast<double>(block_size) / 1024.0, 1.0) *
-                std::min(static_cast<double>(grid_size) / 80.0, 1.0)
+            block_size > 0 ? static_cast<double>(shmem) / block_size : 0.0
         };
         return predict(features);
     }
 };
-
-enum ColdStartClassifierMode {
-    COLDSTART_CLASSIFIER_DEFAULT = 0,
-    COLDSTART_CLASSIFIER_PERFORMANCE_AGGRESSIVE = 1
-};
-
-inline int coldstart_classifier_predict(
-        int grid_x, int grid_y, int grid_z,
-        int block_x, int block_y, int block_z,
-        int nregs, int shmem,
-        ColdStartClassifierMode mode = COLDSTART_CLASSIFIER_DEFAULT) {
-    (void)mode;
-    return ColdStartClassifier::predict_from_launch_params(
-        grid_x, grid_y, grid_z, block_x, block_y, block_z, nregs, shmem);
-}
-
 #endif // COLDSTART_CLASSIFIER_H

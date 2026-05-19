@@ -860,7 +860,6 @@ void increment_x_then_y_then_z(dim3 &i, const dim3 &bound) {
 }
 
 void gpgpu_sim::launch(kernel_info_t *kinfo) {
-  m_last_cluster_issue = m_shader_config->n_simt_clusters - 1;
   unsigned kernelID = kinfo->get_uid();
   unsigned long long streamID = kinfo->get_streamID();
   std::string kernel_name = kinfo->name();
@@ -1008,7 +1007,7 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
           // cold_start_sc = coldstart_classifier_predict(
           //     grid_dim.x, grid_dim.y, grid_dim.z, block_dim.x, block_dim.y,
           //     block_dim.z, nregs, shmem, classifier_mode, m_active_subcore_limit);
-          cold_start_sc = 2;
+          cold_start_sc = 3;
           // Clamp to valid range [1, 4].
           if (cold_start_sc < 1 || cold_start_sc > 4) cold_start_sc = 1;
           if (cold_start_sc > m_shader_config->gpgpu_num_sched_per_core)
@@ -1187,7 +1186,7 @@ unsigned gpgpu_sim::decide_subcore_count(unsigned long long total_insn,
                                          class kernel_info_t* kernel) {
   (void)total_insn;
   (void)total_cycles;
-  return 2;
+  return 3;
   int predicted_subcores = 2;
   if (m_config.subcore_operating_mode() ==
       gpgpu_sim_config::SUBCORE_MODE_PERFORMANCE_AGGRESSIVE) {
@@ -1709,6 +1708,7 @@ void gpgpu_sim::init_subcore_coefficient_table() {
 
   for (unsigned sc = 1; sc <= max_subcores; ++sc) {
     subcore_coeff_profile_t profile = base_profile;
+        static_cast<double>(sc) / static_cast<double>(max_subcores);
     m_subcore_coefficient_table[sc] = profile;
   }
 

@@ -624,7 +624,10 @@ class gpgpu_sim : public gpgpu_t {
   unsigned decide_subcore_count(unsigned long long total_insn,
                                unsigned long long total_cycles,
                                int nregs,
-                               class gpgpu_sim_wrapper* power_wrapper);
+                               class gpgpu_sim_wrapper* power_wrapper,
+                               class kernel_info_t* kernel);
+
+
 
   void launch(kernel_info_t *kinfo);
   bool can_start_kernel();
