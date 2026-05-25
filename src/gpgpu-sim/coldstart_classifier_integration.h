@@ -12,41 +12,35 @@ enum ColdStartClassifierMode {
     COLDSTART_CLASSIFIER_PERFORMANCE_AGGRESSIVE = 1
 };
 
-// Wrapper function for gpu-sim.cc - handles extra parameters that aren't used
-// in the pre-launch model
-// Uses 9 pre-launch features via predict_from_launch_params:
-//   [0] block_size (block_x * block_y * block_z)
-//   [1] nregs (number of registers)
-//   [2] shmem (shared memory)
-//   [3] grid_dim_x
-//   [4] grid_dim_y
-//   [5] block_dim_x
-//   [6] block_dim_y
-//   [7] reg_footprint (nregs * block_size)
-//   [8] shmem_per_thread (shmem / block_size)
+// Wrapper function for gpu-sim.cc - delegates to the classifier
+// Uses 5 pre-launch features via predict_from_launch_params:
+//   [0] grid_size (grid_x * grid_y * grid_z)
+//   [1] block_size (block_x * block_y * block_z)
+//   [2] total_threads (grid_size * block_size)
+//   [3] nregs (number of registers)
+//   [4] shmem (shared memory)
 inline int coldstart_classifier_predict(
         int grid_x, int grid_y, int grid_z,
         int block_x, int block_y, int block_z,
         int nregs, int shmem,
         ColdStartClassifierMode classifier_mode = COLDSTART_CLASSIFIER_DEFAULT,
-        int m_active_subcore_limit = 4) {  // Not used - pre-launch model doesn't need it
+        int m_active_subcore_limit = 4) {  // Not used - classifier doesn't need it
     (void)classifier_mode;  // Avoid unused parameter warning
     (void)m_active_subcore_limit;  // Avoid unused parameter warning
-    (void)grid_z;  // Not used in this 9-feature model
     
-    // Call the classifier's predict_from_launch_params method which handles all 9 features
+    // Call the classifier's predict_from_launch_params method
     return ColdStartClassifier::predict_from_launch_params(
         grid_x, grid_y, grid_z,
         block_x, block_y, block_z,
         nregs, shmem);
 }
 
-// Utility function to extract and predict (similar to main function above)
+// Utility function to extract and predict
 inline int coldstart_predict_optimal_subcores(
         int grid_x, int grid_y, int grid_z,
         int block_x, int block_y, int block_z,
         int nregs, int shmem) {
-    // Delegates to the main classifier function which uses predict_from_launch_params
+    // Delegates to the main classifier function
     return coldstart_classifier_predict(
         grid_x, grid_y, grid_z,
         block_x, block_y, block_z,

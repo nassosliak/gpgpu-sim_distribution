@@ -105,15 +105,14 @@ class PerformanceSubcoreFeatureExtractor {
 
 // Out-of-class definitions for ColdStartClassifier static constexpr members
 // Required for linker when members are odr-used
-constexpr double ColdStartClassifier::SCALER_MEAN[9];
-constexpr double ColdStartClassifier::SCALER_STD[9];
-constexpr int ColdStartClassifier::CHILDREN_LEFT[61];
-constexpr int ColdStartClassifier::CHILDREN_RIGHT[61];
-constexpr int ColdStartClassifier::FEATURE[61];
-constexpr double ColdStartClassifier::THRESHOLD[61];
-constexpr double ColdStartClassifier::VALUE[61][4];
+constexpr double ColdStartClassifier::SCALER_MEAN[5];
+constexpr double ColdStartClassifier::SCALER_STD[5];
+constexpr int ColdStartClassifier::CHILDREN_LEFT[63];
+constexpr int ColdStartClassifier::CHILDREN_RIGHT[63];
+constexpr int ColdStartClassifier::FEATURE[63];
+constexpr double ColdStartClassifier::THRESHOLD[63];
+constexpr double ColdStartClassifier::VALUE[63][4];
 constexpr int ColdStartClassifier::CLASSES[4];
-
 bool g_interactive_debugger_enabled = false;
 
 tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
@@ -860,7 +859,7 @@ void increment_x_then_y_then_z(dim3 &i, const dim3 &bound) {
 }
 
 void gpgpu_sim::launch(kernel_info_t *kinfo) {
-  m_last_cluster_issue = m_shader_config->n_simt_clusters - 1;
+  // m_last_cluster_issue = m_shader_config->n_simt_clusters - 1;
   unsigned kernelID = kinfo->get_uid();
   unsigned long long streamID = kinfo->get_streamID();
   std::string kernel_name = kinfo->name();
@@ -894,18 +893,21 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
              grid_dim.y, grid_dim.z, block_dim.x, block_dim.y, block_dim.z);
       printf("Registers: %d  Shared Memory: %d bytes\n", nregs, shmem);
 
-      // First, check if a prediction already exists for this kernel
+      // 1. Check if a prediction already exists for this kernel
       std::map<std::string, unsigned>::iterator it = m_kernel_subcore_predictions.find(kernel_name);
+      
       if (it != m_kernel_subcore_predictions.end()) {
-        // Use the existing prediction from LUT
+        // We already ran the coldstart classifier for a previous instance! Use it.
         predicted_sc = it->second;
         printf("Found existing prediction in LUT: %u sub-cores (current: %u)\n",
                predicted_sc, m_active_subcore_limit);
       } else if (m_config.g_cold_start_classifier_enabled) {
+        // 2. We haven't seen this kernel yet. Run the coldstart classifier.
         ColdStartClassifierMode classifier_mode = COLDSTART_CLASSIFIER_DEFAULT;
         if (m_config.cold_start_subcore_operating_mode() == gpgpu_sim_config::SUBCORE_MODE_PERFORMANCE_AGGRESSIVE) {
           classifier_mode = COLDSTART_CLASSIFIER_PERFORMANCE_AGGRESSIVE;
         }
+        
         predicted_sc = coldstart_classifier_predict(
             grid_dim.x, grid_dim.y, grid_dim.z, block_dim.x, block_dim.y,
             block_dim.z, nregs, shmem, classifier_mode, m_active_subcore_limit);
@@ -917,6 +919,12 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
 
         printf("No LUT prediction found; using cold-start ML prediction: %u sub-cores (current: %u)\n",
                predicted_sc, m_active_subcore_limit);
+
+        // =========================================================================
+        // 3. CACHE IT! Save the cold-start prediction in the LUT so it is reused.
+        // =========================================================================
+        m_kernel_subcore_predictions[kernel_name] = predicted_sc;
+        
       } else {
         printf("No LUT prediction found; cold-start classifier disabled; using default: %u sub-cores (current: %u)\n",
                predicted_sc, m_active_subcore_limit);
@@ -1005,10 +1013,10 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
           if (m_config.cold_start_subcore_operating_mode() == gpgpu_sim_config::SUBCORE_MODE_PERFORMANCE_AGGRESSIVE) {
             classifier_mode = COLDSTART_CLASSIFIER_PERFORMANCE_AGGRESSIVE;
           }
-          // cold_start_sc = coldstart_classifier_predict(
-          //     grid_dim.x, grid_dim.y, grid_dim.z, block_dim.x, block_dim.y,
-          //     block_dim.z, nregs, shmem, classifier_mode, m_active_subcore_limit);
-          cold_start_sc = 2;
+          cold_start_sc = coldstart_classifier_predict(
+              grid_dim.x, grid_dim.y, grid_dim.z, block_dim.x, block_dim.y,
+              block_dim.z, nregs, shmem, classifier_mode, m_active_subcore_limit);
+          // cold_start_sc = 2;
           // Clamp to valid range [1, 4].
           if (cold_start_sc < 1 || cold_start_sc > 4) cold_start_sc = 1;
           if (cold_start_sc > m_shader_config->gpgpu_num_sched_per_core)
@@ -1187,8 +1195,8 @@ unsigned gpgpu_sim::decide_subcore_count(unsigned long long total_insn,
                                          class kernel_info_t* kernel) {
   (void)total_insn;
   (void)total_cycles;
-  return 2;
-  int predicted_subcores = 2;
+  // return 2;
+  int predicted_subcores = 3;
   if (m_config.subcore_operating_mode() ==
       gpgpu_sim_config::SUBCORE_MODE_PERFORMANCE_AGGRESSIVE) {
     PerformanceSubcoreFeatureExtractor extractor(this, m_shader_config,
